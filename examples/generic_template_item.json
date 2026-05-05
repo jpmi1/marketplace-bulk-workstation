@@ -1,0 +1,33 @@
+{
+  "id": "example-001",
+  "source": "manual_template",
+  "title": "Generic Item Title",
+  "price": 25,
+  "condition": "Used - Good",
+  "category": "Home Goods",
+  "quantity_text": "1 unit available",
+  "description": "Selling a generic item.\n\nQuantity: 1 unit available.\n\nCondition: Used - Good.\n\nPlease confirm compatibility, sizing, and fit from the photos before buying.\n\nLocal pickup available. Shipping available when supported; buyer pays shipping.",
+  "location": "Your City, ST ZIP",
+  "pickup_enabled": true,
+  "shipping_enabled": true,
+  "package_weight_oz": 16,
+  "carrier_preference": "Buyer-paid shipping",
+  "private_notes": "Replace this with internal review notes. Private notes are not posted.",
+  "approved": false,
+  "status": "needs_review",
+  "reference_only_approved": false,
+  "photos": [
+    {
+      "id": "example-001-photo-01",
+      "uri": "https://example.com/replace-with-your-photo.jpg",
+      "path": "",
+      "source_url": "",
+      "kind": "original",
+      "provenance": "Template placeholder. Replace with a real local photo path.",
+      "removed": false,
+      "cover": true,
+      "sort_order": 1,
+      "rights_warning": ""
+    }
+  ]
+}

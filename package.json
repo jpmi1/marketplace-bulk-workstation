@@ -1,0 +1,17 @@
+{
+  "name": "marketplace-bulk-workstation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "app": "python3 scripts/marketplace_app.py",
+    "app:import": "python3 scripts/marketplace_app.py --import-existing",
+    "post:drafts": "node scripts/facebook_marketplace_worker.js",
+    "post:approved": "node scripts/facebook_marketplace_worker.js --publish-approved",
+    "test": "python3 -m unittest discover -s tests",
+    "frontend:build": "npm --prefix app/frontend run build"
+  },
+  "dependencies": {
+    "playwright": "^1.56.1"
+  }
+}

@@ -1,0 +1,16 @@
+[project]
+name = "marketplace-bulk-workstation"
+version = "0.1.0"
+description = "Local-first Facebook Marketplace bulk listing workstation."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "pydantic",
+  "openpyxl",
+  "Pillow",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,25 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+node_modules/
+app/frontend/node_modules/
+app/frontend/dist/
+
+.playwright-mcp/
+projects/*/*.db
+projects/*/posting-runs/
+outputs/
+data/
+IMG_*
+Screenshot *.PNG
+*.HEIC
+
+# Legacy one-off scripts can include private inventory context.
+scripts/facebook_marketplace_automation.js
+scripts/marketplace_pipeline.py
+scripts/storage_*.py
+scripts/storage_*.js
+tests/test_storage_inventory_intake.py
+
+*.log
