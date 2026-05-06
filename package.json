@@ -6,6 +6,7 @@
   "scripts": {
     "app": "python3 scripts/marketplace_app.py",
     "app:import": "python3 scripts/marketplace_app.py --import-existing",
+    "recognize:local": "python3 scripts/local_recognition.py",
     "post:drafts": "node scripts/facebook_marketplace_worker.js",
     "post:approved": "node scripts/facebook_marketplace_worker.js --publish-approved",
     "post:live": "node scripts/facebook_marketplace_worker.js --live",

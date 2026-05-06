@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from marketplace_bulk.photo_intake import commit_photo_batch, get_batch, group_photos, save_batch
+from marketplace_bulk.local_recognition import extract_codes, recognition_patch
 from marketplace_bulk.storage import (
     approve_listing,
     btc_entries_csv,
@@ -140,6 +141,49 @@ Local pickup available."""
         groups = group_photos(photos)
         self.assertEqual(groups[0]["photo_ids"], ["newer", "same-item"])
         self.assertEqual(groups[1]["photo_ids"], ["next-item"])
+
+    def test_local_recognition_extracts_barcodes_and_models(self):
+        barcodes, models = extract_codes("UPC 012345678905 Model: HUE-A19 SKU ABC-123 Serial SN9")
+        self.assertIn("012345678905", barcodes)
+        self.assertIn("HUE-A19", models)
+        self.assertIn("ABC-123", models)
+
+    def test_local_recognition_patch_improves_placeholder_listing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = get_settings(Path(tmp) / "project.db")
+            listing = {
+                "title": "Photo group 1",
+                "category": "",
+                "condition": "Used - Good",
+                "description": "Selling the item shown in the photos.",
+                "shipping_enabled": True,
+                "tags": [],
+                "private_notes": "Created from upload.",
+            }
+            facts = {
+                "title": "Philips Hue smart lighting bundle",
+                "category": "Electronics",
+                "condition": "Used - Good",
+                "brand": "Philips Hue",
+                "model_numbers": ["A19"],
+                "barcode_numbers": ["012345678905"],
+                "tags": ["smart lighting", "philips hue"],
+                "description_bullets": ["Includes bulbs and bridge shown in photos."],
+                "visible_text": "Philips Hue A19",
+                "confidence": 0.82,
+                "needs_review": False,
+                "notes": "Brand and model visible on packaging.",
+            }
+            patch = recognition_patch(listing, facts, settings)
+            self.assertEqual(patch["title"], "Philips Hue smart lighting bundle")
+            self.assertEqual(patch["category"], "Electronics")
+            self.assertIn("Includes bulbs", patch["description"])
+            self.assertIn("012345678905", patch["private_notes"])
+            self.assertIn("philips hue", patch["tags"])
+
+            listing["title"] = "Existing careful title"
+            patch = recognition_patch(listing, facts, settings)
+            self.assertNotIn("title", patch)
 
     def test_btc_progress_summary_math_and_exports(self):
         with tempfile.TemporaryDirectory() as tmp:

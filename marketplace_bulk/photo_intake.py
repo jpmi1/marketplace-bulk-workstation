@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import UploadFile
 
+from .local_recognition import recognize_listing
 from .storage import DEFAULT_DB_PATH, DEFAULT_PROJECT_DIR, add_log, get_settings, upsert_listing
 
 
@@ -200,6 +201,17 @@ def commit_photo_batch(batch_id: str, groups: list[dict[str, Any]], db_path: Pat
             },
             db_path,
         )
+        if settings.get("local_image_recognition_enabled"):
+            try:
+                recognize_listing(listing_id, db_path)
+            except Exception as exc:
+                add_log(
+                    "warning",
+                    f"Local recognition skipped for {listing_id}",
+                    listing_id=listing_id,
+                    details={"error": str(exc)},
+                    db_path=db_path,
+                )
         created.append(listing_id)
 
     batch["groups"] = groups

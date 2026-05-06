@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from . import __version__
 from .importers import import_existing_outputs
+from .local_recognition import recognize_listing, recognize_listings
 from .photo_intake import commit_photo_batch, create_photo_batch, get_batch, photo_asset_path
 from .storage import (
     DEFAULT_DB_PATH,
@@ -110,6 +111,18 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             return approve_listing(listing_id, bool(body.data.get("approved", True)), db_path)
         except KeyError:
             raise HTTPException(status_code=404, detail="Listing not found") from None
+
+    @app.post("/api/listings/{listing_id}/recognize")
+    def listing_recognize(listing_id: str) -> dict[str, Any]:
+        try:
+            return recognize_listing(listing_id, db_path)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Listing not found") from None
+
+    @app.post("/api/listings/recognize")
+    def listings_recognize(body: PatchBody) -> dict[str, Any]:
+        ids = [str(value).strip() for value in body.data.get("ids", []) if str(value).strip()]
+        return recognize_listings(ids or None, db_path)
 
     @app.patch("/api/listings/{listing_id}/photos/{photo_id}")
     def photo_patch(listing_id: str, photo_id: str, body: PatchBody) -> dict[str, Any]:

@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   Plus,
   RefreshCw,
+  ScanSearch,
   Search,
   Settings,
   ShipWheel,
@@ -78,6 +79,11 @@ type AppSettings = {
   facebook_profile_path: string;
   image_research_enabled: boolean;
   comp_research_enabled: boolean;
+  local_image_recognition_enabled: boolean;
+  local_ocr_enabled: boolean;
+  local_vision_ollama_host: string;
+  local_vision_model: string;
+  local_vision_model_root: string;
   reference_image_policy: string;
   description_tone: string;
   btc_goal_amount: number;
@@ -222,6 +228,20 @@ const api = {
       body: JSON.stringify({ data: { approved } }),
     }).then((res) => res.json());
   },
+  async recognizeListing(id: string): Promise<Listing> {
+    const response = await fetch(`/api/listings/${encodeURIComponent(id)}/recognize`, { method: "POST" });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  },
+  async recognizeListings(ids: string[]): Promise<{ updated: string[]; failed: Record<string, string> }> {
+    const response = await fetch("/api/listings/recognize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: { ids } }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  },
   async patchPhoto(listingId: string, photoId: string, data: Partial<Photo>): Promise<Listing> {
     return fetch(`/api/listings/${encodeURIComponent(listingId)}/photos/${encodeURIComponent(photoId)}`, {
       method: "PATCH",
@@ -301,6 +321,24 @@ function App() {
   async function approve(id: string, approved: boolean) {
     const updated = await api.approveListing(id, approved);
     setListings((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+  }
+
+  async function recognize(ids: string[]) {
+    const uniqueIds = [...new Set(ids)].filter(Boolean);
+    if (!uniqueIds.length) return;
+    setSaving(true);
+    if (uniqueIds.length === 1) {
+      const updated = await api.recognizeListing(uniqueIds[0]);
+      setListings((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+      setToast("Local recognition updated this listing");
+    } else {
+      const result = await api.recognizeListings(uniqueIds);
+      await loadAll();
+      const failed = Object.keys(result.failed || {}).length;
+      setToast(`Local recognition updated ${result.updated.length}; ${failed} failed`);
+    }
+    setSaving(false);
+    window.setTimeout(() => setToast(""), 2600);
   }
 
   async function deleteListings(ids: string[]) {
@@ -444,6 +482,7 @@ function App() {
             onPatch={mutateListing}
             onPatchPhoto={mutatePhoto}
             onApprove={approve}
+            onRecognize={recognize}
             onAddProceeds={addListingProceeds}
           />
         )}
@@ -1043,6 +1082,7 @@ function ReviewView(props: {
   onPatch: (id: string, data: Partial<Listing>) => Promise<void>;
   onPatchPhoto: (listingId: string, photoId: string, data: Partial<Photo>) => Promise<void>;
   onApprove: (id: string, approved: boolean) => Promise<void>;
+  onRecognize: (ids: string[]) => Promise<void>;
   onAddProceeds: (listing: Listing) => Promise<void>;
 }) {
   const canDelete = props.statusFilter === "all" || props.statusFilter === "needs_review";
@@ -1080,6 +1120,13 @@ function ReviewView(props: {
             >
               <Trash2 size={15} /> Delete
             </button>
+            <button
+              className="secondary compact"
+              disabled={!checkedVisibleIds.length}
+              onClick={() => props.onRecognize(checkedVisibleIds)}
+            >
+              <ScanSearch size={15} /> Recognize
+            </button>
           </div>
         )}
         <div className="listing-list">
@@ -1109,7 +1156,7 @@ function ReviewView(props: {
       {props.selected ? (
         <>
           <PhotoWorkbench listing={props.selected} onPatchPhoto={props.onPatchPhoto} />
-          <ListingEditor listing={props.selected} onPatch={props.onPatch} onApprove={props.onApprove} onAddProceeds={props.onAddProceeds} />
+          <ListingEditor listing={props.selected} onPatch={props.onPatch} onApprove={props.onApprove} onRecognize={() => props.onRecognize([props.selected!.id])} onAddProceeds={props.onAddProceeds} />
         </>
       ) : (
         <div className="empty-wide">
@@ -1183,7 +1230,7 @@ function PhotoWorkbench({ listing, onPatchPhoto }: { listing: Listing; onPatchPh
   );
 }
 
-function ListingEditor({ listing, onPatch, onApprove, onAddProceeds }: { listing: Listing; onPatch: (id: string, data: Partial<Listing>) => Promise<void>; onApprove: (id: string, approved: boolean) => Promise<void>; onAddProceeds: (listing: Listing) => Promise<void> }) {
+function ListingEditor({ listing, onPatch, onApprove, onRecognize, onAddProceeds }: { listing: Listing; onPatch: (id: string, data: Partial<Listing>) => Promise<void>; onApprove: (id: string, approved: boolean) => Promise<void>; onRecognize: () => Promise<void>; onAddProceeds: (listing: Listing) => Promise<void> }) {
   const [draft, setDraft] = useState(listing);
   useEffect(() => setDraft(listing), [listing]);
 
@@ -1240,6 +1287,7 @@ function ListingEditor({ listing, onPatch, onApprove, onAddProceeds }: { listing
       </div>
       <div className="approval-actions">
         <button className="primary" onClick={() => onApprove(listing.id, true)}><Check size={16} /> Approve</button>
+        <button className="secondary" onClick={onRecognize}><ScanSearch size={16} /> Recognize photos</button>
         <button className="secondary" onClick={() => onApprove(listing.id, false)}>Unapprove</button>
         <button className="secondary" disabled={!listing.price} onClick={() => onAddProceeds(listing)}><Bitcoin size={16} /> Add proceeds to Path to 1 BTC</button>
         <label className="reference-toggle">
@@ -1353,6 +1401,9 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (da
           <Field label="Batch size"><input type="number" min="1" max="50" value={draft.batch_size} onChange={(event) => setDraft({ ...draft, batch_size: Number(event.target.value) })} /></Field>
           <Field label="Default package weight"><input type="number" min="0" value={draft.default_package_weight_oz ?? ""} onChange={(event) => setDraft({ ...draft, default_package_weight_oz: event.target.value ? Number(event.target.value) : null })} /></Field>
           <Field label="Facebook browser profile" wide><input value={draft.facebook_profile_path} onChange={(event) => setDraft({ ...draft, facebook_profile_path: event.target.value })} /></Field>
+          <Field label="Local vision host"><input value={draft.local_vision_ollama_host || ""} onChange={(event) => setDraft({ ...draft, local_vision_ollama_host: event.target.value })} /></Field>
+          <Field label="Local vision model"><input value={draft.local_vision_model || ""} onChange={(event) => setDraft({ ...draft, local_vision_model: event.target.value })} /></Field>
+          <Field label="Local model store" wide><input value={draft.local_vision_model_root || ""} onChange={(event) => setDraft({ ...draft, local_vision_model_root: event.target.value })} /></Field>
           <Field label="Goal amount (BTC)"><input type="number" step="0.00000001" value={draft.btc_goal_amount} onChange={(event) => setDraft({ ...draft, btc_goal_amount: Number(event.target.value) })} /></Field>
           <Field label="Current BTC owned"><input type="number" step="0.00000001" value={draft.btc_owned} onChange={(event) => setDraft({ ...draft, btc_owned: Number(event.target.value) })} /></Field>
           <Field label="Manual BTC/USD price"><input type="number" min="0" value={draft.manual_btc_usd_price} onChange={(event) => setDraft({ ...draft, manual_btc_usd_price: Number(event.target.value) })} /></Field>
@@ -1366,6 +1417,8 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (da
             <label><input type="checkbox" checked={draft.shipping_enabled_default} onChange={(event) => setDraft({ ...draft, shipping_enabled_default: event.target.checked })} /> Shipping by default</label>
             <label><input type="checkbox" checked={draft.image_research_enabled} onChange={(event) => setDraft({ ...draft, image_research_enabled: event.target.checked })} /> Image research enabled</label>
             <label><input type="checkbox" checked={draft.comp_research_enabled} onChange={(event) => setDraft({ ...draft, comp_research_enabled: event.target.checked })} /> Comp research enabled</label>
+            <label><input type="checkbox" checked={draft.local_image_recognition_enabled} onChange={(event) => setDraft({ ...draft, local_image_recognition_enabled: event.target.checked })} /> On-device recognition</label>
+            <label><input type="checkbox" checked={draft.local_ocr_enabled} onChange={(event) => setDraft({ ...draft, local_ocr_enabled: event.target.checked })} /> OCR labels and barcodes</label>
             <label><input type="checkbox" checked={draft.auto_publish} onChange={(event) => setDraft({ ...draft, auto_publish: event.target.checked })} /> Live-post approved listings</label>
           </div>
         </div>

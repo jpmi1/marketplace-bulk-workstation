@@ -59,6 +59,27 @@ Then open `http://127.0.0.1:8766`.
 - `Agent Setup`: copy scoped prompts for Codex or Claude Code.
 - `Settings`: configure location, listing defaults, browser profile path, research gates, posting gate, and BTC side tracker defaults.
 
+## Local Photo Recognition
+
+The app can enrich uploaded listings with on-device OCR and local vision-model recognition. It reuses the local Ollama pattern from the onsite media catalog pipeline: photos are resized into `projects/default/recognition-cache/`, sent to the configured local Ollama host, and OCR/barcode/model facts are saved back into listing state.
+
+Defaults point at the existing local model setup:
+
+- Host: `http://127.0.0.1:11435`
+- Model: `qwen3-vl:4b`
+- Model store: `/Volumes/Rewind-Data/ai/ollama-models`
+
+OCR uses macOS Vision when available and Tesseract when installed. If the local vision model is unavailable, the app falls back to OCR-only notes instead of blocking intake.
+
+Run recognition manually:
+
+```bash
+npm run recognize:local
+python3 scripts/local_recognition.py --ids example-001,example-002
+```
+
+Recognition can improve placeholder titles, empty categories, tags, and generic descriptions, but it does not approve listings or post anything.
+
 ## Browser Worker
 
 The worker reads approved, valid listings from the API and posts them through Facebook Marketplace in a persistent local browser profile. It never reads or stores credentials.
@@ -112,6 +133,7 @@ See `docs/agent-onboarding.md` for setup and `docs/agent-playbook.md` for listin
 - `marketplace_bulk/`: Python listing engine, SQLite storage, validation, importers, and FastAPI app.
 - `app/frontend/`: React/Vite approval dashboard.
 - `scripts/facebook_marketplace_worker.js`: reusable Playwright posting worker.
+- `scripts/local_recognition.py`: local OCR/vision enrichment runner.
 - `docs/`: posting workflow, gated research pipeline, and agent onboarding.
 - `examples/`: generic templates with no private listing data.
 

@@ -22,7 +22,14 @@ npm run app
 
 The local app is served at `http://127.0.0.1:8766/`.
 
-The app has first-class `Intake`, `Review`, `Posting Queue`, `Path to 1 BTC`, and `Agent Setup` screens. Use Intake for drag/drop photo imports, Path to 1 BTC for manual progress tracking and CSV/XLSX exports, and Agent Setup to copy scoped Codex/Claude prompts.
+The app has first-class `Intake`, `Review`, `Posting Queue`, `Path to 1 BTC`, and `Agent Setup` screens. Use Intake for drag/drop photo imports, Review for local OCR/vision cleanup and approvals, Path to 1 BTC for manual progress tracking and CSV/XLSX exports, and Agent Setup to copy scoped Codex/Claude prompts.
+
+Run local OCR/vision cleanup only when preparing listings:
+
+```bash
+npm run recognize:local
+python3 scripts/local_recognition.py --ids example-001
+```
 
 Run tests before committing:
 
@@ -64,11 +71,13 @@ Detailed instructions live in `docs/playwright-posting.md`.
 
 Research is gated by Settings:
 
+- `local_image_recognition_enabled` controls on-device recognition of original user photos.
+- `local_ocr_enabled` controls OCR/barcode/model extraction from original user photos.
 - `comp_research_enabled` must be true before searching prices or comp links.
 - `image_research_enabled` must be true before finding additional product/reference photos.
 - `reference_image_policy` controls how web images are handled.
 
-Use `docs/research-pipeline.md` for the full process. Save price comps, product facts, source links, confidence, and web image provenance into project state. Keep uncertainty in `private_notes`; keep public descriptions buyer-facing.
+Use `docs/research-pipeline.md` for the full process. Prefer local OCR/vision before web research when labels, tags, barcodes, or packaging are visible. Save price comps, product facts, source links, confidence, and web image provenance into project state. Keep uncertainty in `private_notes`; keep public descriptions buyer-facing.
 
 ## Codex and Claude Code Onboarding
 

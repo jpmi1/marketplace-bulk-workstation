@@ -13,10 +13,12 @@ This repo is designed for a local-first human review loop. Codex, Claude Code, o
 ## Photo/OCR Identification Workflow
 
 1. Group photos by timestamp burst and visual similarity.
-2. Inspect visible labels, model numbers, dimensions, serial plates, packaging, and accessories.
-3. Use OCR when labels, boxes, or tags are readable.
-4. Draft a title that names the item plainly without unsupported claims.
-5. Mark uncertain brand/model/compatibility in private notes and validation flags, not public copy.
+2. Run local recognition when enabled: `npm run recognize:local` for needs-review items or `python3 scripts/local_recognition.py --ids example-001` for selected listings.
+3. Inspect visible labels, model numbers, dimensions, serial plates, packaging, and accessories.
+4. Use OCR when labels, boxes, or tags are readable.
+5. Save barcode/model/label uncertainty in `private_notes`; keep public copy buyer-facing.
+6. Draft a title that names the item plainly without unsupported claims.
+7. Mark uncertain brand/model/compatibility in private notes and validation flags, not public copy.
 
 ## Comp Research Workflow
 
