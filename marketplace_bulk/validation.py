@@ -18,6 +18,7 @@ FORBIDDEN_PUBLIC_PHRASES = [
 ]
 
 VALID_CONDITIONS = ["New", "Used - Like New", "Used - Good", "Used - Fair"]
+LOCAL_PICKUP_LINE_RE = re.compile(r"\blocal pickup\b", re.IGNORECASE)
 
 
 def clean_whitespace(text: str) -> str:
@@ -50,6 +51,32 @@ def sanitize_public_description(text: str, forbidden_phrases: list[str] | None =
     return cleaned
 
 
+def format_pickup_location(settings: dict[str, Any] | None = None, *, location: str = "", pickup_place_name: str = "", pickup_zip_code: str = "") -> str:
+    settings = settings or {}
+    place = str(pickup_place_name or settings.get("pickup_place_name") or "").strip()
+    zip_code = str(pickup_zip_code or settings.get("pickup_zip_code") or "").strip()
+    fallback = str(location or settings.get("location") or "").strip()
+    parts = [part for part in [place, zip_code] if part]
+    return ", ".join(parts) if parts else fallback
+
+
+def pickup_description_line(settings: dict[str, Any], shipping_enabled: bool = True) -> str:
+    pickup_location = format_pickup_location(settings)
+    pickup = f"Local pickup at {pickup_location}." if pickup_location else "Local pickup available."
+    shipping = "Shipping available through Facebook when supported; buyer pays shipping." if shipping_enabled else "No shipping."
+    return f"{pickup} {shipping}"
+
+
+def ensure_pickup_description_line(description: str, settings: dict[str, Any], shipping_enabled: bool = True) -> str:
+    lines = [
+        line.rstrip()
+        for line in str(description or "").splitlines()
+        if not LOCAL_PICKUP_LINE_RE.search(line.strip())
+    ]
+    lines.extend(["", pickup_description_line(settings, shipping_enabled)])
+    return sanitize_public_description("\n".join(lines), settings.get("forbidden_public_phrases"))
+
+
 def public_inventory_description(
     *,
     item_name: str,
@@ -59,6 +86,8 @@ def public_inventory_description(
     product_title: str = "",
     product_domain: str = "",
     location: str = "Your City, ST ZIP",
+    pickup_place_name: str = "",
+    pickup_zip_code: str = "",
     shipping_enabled: bool = True,
 ) -> str:
     sections = [f"Selling {item_name.strip()}."]
@@ -72,8 +101,8 @@ def public_inventory_description(
     if details:
         sections.append(f"Details: {details.strip()}")
     sections.append("Please confirm compatibility, connector type, sizing, and fit from the photos before buying.")
-    shipping = "Shipping available through Facebook when supported; buyer pays shipping." if shipping_enabled else "Local pickup only."
-    sections.append(f"Local pickup in {location}. {shipping}")
+    pickup_location = format_pickup_location(location=location, pickup_place_name=pickup_place_name, pickup_zip_code=pickup_zip_code)
+    sections.append(pickup_description_line({"location": pickup_location}, shipping_enabled))
     return sanitize_public_description("\n\n".join(section for section in sections if section))
 
 

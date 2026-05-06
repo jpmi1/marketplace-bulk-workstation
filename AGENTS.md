@@ -22,7 +22,7 @@ npm run app
 
 The local app is served at `http://127.0.0.1:8766/`.
 
-The app has first-class `Intake`, `Review`, `Posting Queue`, `Path to 1 BTC`, and `Agent Setup` screens. Use Intake for drag/drop photo imports, Review for local OCR/vision cleanup and approvals, Path to 1 BTC for manual progress tracking and CSV/XLSX exports, and Agent Setup to copy scoped Codex/Claude prompts.
+The app has first-class `Intake`, `Review`, `Posting Queue`, `Path to 1 BTC`, and `Agent Setup` screens. Use Intake for drag/drop photo imports, Review for local OCR/vision cleanup and approvals, Settings for map location plus pickup ZIP/place defaults, Path to 1 BTC for manual progress tracking and CSV/XLSX exports, and Agent Setup to copy scoped Codex/Claude prompts.
 
 Run local OCR/vision cleanup only when preparing listings:
 

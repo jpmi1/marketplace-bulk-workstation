@@ -17,7 +17,7 @@ from typing import Any
 from PIL import Image, ImageOps
 
 from .storage import DEFAULT_DB_PATH, DEFAULT_PROJECT_DIR, ROOT, add_log, get_listing, get_settings, patch_listing
-from .validation import sanitize_public_description
+from .validation import pickup_description_line, sanitize_public_description
 
 
 PIPELINE_CONFIG = Path("/Volumes/Rewind-Data/Onsite photos/media_catalog/config.json")
@@ -257,10 +257,7 @@ def description_from_bullets(listing: dict[str, Any], facts: dict[str, Any], set
     if not bullets:
         bullets = ["See photos for details and included items."]
     lines = [f"Selling {title}.", "", *[f"- {bullet}" for bullet in bullets[:5]], "", f"Condition: {facts.get('condition') or listing.get('condition') or settings['default_condition']}."]
-    if settings.get("default_pickup_terms"):
-        lines.extend(["", str(settings["default_pickup_terms"])])
-    if listing.get("shipping_enabled"):
-        lines.append("Shipping available through Facebook when supported; buyer pays shipping.")
+    lines.extend(["", pickup_description_line(settings, bool(listing.get("shipping_enabled")))])
     return sanitize_public_description("\n".join(lines), settings.get("forbidden_public_phrases"))
 
 

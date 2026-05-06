@@ -19,6 +19,7 @@ from .photo_intake import commit_photo_batch, create_photo_batch, get_batch, pho
 from .storage import (
     DEFAULT_DB_PATH,
     ROOT,
+    apply_pickup_location_to_listings,
     approve_listing,
     btc_entries_csv,
     btc_entries_xlsx,
@@ -99,6 +100,11 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         if not delete_listing(listing_id, db_path):
             raise HTTPException(status_code=404, detail="Listing not found")
         return {"deleted": [listing_id]}
+
+    @app.post("/api/listings/apply-pickup-location")
+    def listings_apply_pickup_location(body: PatchBody) -> dict[str, Any]:
+        ids = [str(value).strip() for value in body.data.get("ids", []) if str(value).strip()]
+        return apply_pickup_location_to_listings(ids or None, db_path)
 
     @app.post("/api/listings/bulk-delete")
     def listings_bulk_delete(body: PatchBody) -> dict[str, Any]:

@@ -64,10 +64,11 @@ Avoid owner-facing notes, unsupported testing claims, private pricing logic, and
 
 1. Import or generate listings.
 2. Review every field in the app: title, price, condition, category, quantity, description, location, shipping, weight, notes, photos.
-3. Resolve validation errors.
-4. Approve listings.
-5. Use draft mode only as a smoke test; it will wait for browser login, fill the form, and click `Save draft` when Facebook exposes it.
-6. For the final workflow, run live posting for approved listings because Facebook drafts are not a reliable review surface.
+3. Confirm the pickup ZIP/place is reflected in the listing Location field and public description when configured.
+4. Resolve validation errors.
+5. Approve listings.
+6. Use draft mode only as a smoke test; it will wait for browser login, fill the form, and click `Save draft` when Facebook exposes it.
+7. For the final workflow, run live posting for approved listings because Facebook drafts are not a reliable review surface.
 
 ## Playwright Automation Workflow
 

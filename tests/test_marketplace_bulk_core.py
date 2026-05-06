@@ -5,6 +5,7 @@ from pathlib import Path
 from marketplace_bulk.photo_intake import commit_photo_batch, get_batch, group_photos, save_batch
 from marketplace_bulk.local_recognition import extract_codes, recognition_patch
 from marketplace_bulk.storage import (
+    apply_pickup_location_to_listings,
     approve_listing,
     btc_entries_csv,
     btc_entries_xlsx,
@@ -17,7 +18,7 @@ from marketplace_bulk.storage import (
     update_settings,
     upsert_listing,
 )
-from marketplace_bulk.validation import public_inventory_description, sanitize_public_description
+from marketplace_bulk.validation import ensure_pickup_description_line, format_pickup_location, public_inventory_description, sanitize_public_description
 
 
 class MarketplaceBulkCoreTests(unittest.TestCase):
@@ -48,6 +49,20 @@ Local pickup available."""
         self.assertIn("Quantity: 5+ available.", description)
         self.assertNotIn("storage inventory", description.lower())
         self.assertNotIn("notes from", description.lower())
+
+    def test_pickup_location_format_and_description_rewrite(self):
+        settings = {
+            "location": "Austin, TX",
+            "pickup_zip_code": "78702",
+            "pickup_place_name": "The Guthrie",
+            "forbidden_public_phrases": [],
+        }
+        self.assertEqual(format_pickup_location(settings), "The Guthrie, 78702")
+        description = "Selling lamp.\n\nLocal pickup in old spot. Shipping available.\n\nThanks."
+        updated = ensure_pickup_description_line(description, settings, True)
+        self.assertIn("Selling lamp.", updated)
+        self.assertIn("Local pickup at The Guthrie, 78702.", updated)
+        self.assertEqual(updated.lower().count("local pickup"), 1)
 
     def test_project_state_persists_edits_photos_and_approval_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -218,6 +233,30 @@ Local pickup available."""
             self.assertEqual(settings["kraken_referral_url"], "")
             updated = update_settings({"manual_btc_usd_price": 90000, "progress_currency": "USD"}, db_path)
             self.assertEqual(updated["manual_btc_usd_price"], 90000)
+
+    def test_apply_pickup_location_to_existing_listings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "project.db"
+            update_settings({"location": "Austin, TX", "pickup_zip_code": "78702", "pickup_place_name": "The Guthrie"}, db_path)
+            upsert_listing(
+                {
+                    "id": "pickup-1",
+                    "title": "Pickup test listing",
+                    "price": 10,
+                    "condition": "Used - Good",
+                    "category": "Household",
+                    "quantity_text": "1 available",
+                    "description": "Selling a pickup test.\n\nLocal pickup in old location.",
+                    "photos": [{"id": "photo-1", "path": "/tmp/photo.jpg", "cover": True, "sort_order": 1}],
+                },
+                db_path,
+            )
+            result = apply_pickup_location_to_listings(db_path=db_path)
+            self.assertEqual(result["location"], "The Guthrie, 78702")
+            listing = list_listings(db_path=db_path)[0]
+            self.assertEqual(listing["location"], "The Guthrie, 78702")
+            self.assertIn("Local pickup at The Guthrie, 78702.", listing["description"])
+            self.assertEqual(listing["description"].lower().count("local pickup"), 1)
 
     def test_published_status_survives_validation_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:

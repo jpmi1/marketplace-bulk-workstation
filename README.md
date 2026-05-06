@@ -57,7 +57,7 @@ Then open `http://127.0.0.1:8766`.
 - `Posting Queue`: see approved listings, use Facebook Marketplace shortcuts, and run the Playwright worker against selected IDs.
 - `Path to 1 BTC`: set any BTC goal amount, current BTC owned, manual BTC/USD price, Kraken referral URL, and Google Sheet URL; add ledger entries and export CSV/XLSX.
 - `Agent Setup`: copy scoped prompts for Codex or Claude Code.
-- `Settings`: configure location, listing defaults, browser profile path, research gates, posting gate, and BTC side tracker defaults.
+- `Settings`: configure Facebook map location, pickup ZIP/place, listing defaults, browser profile path, research gates, posting gate, and BTC side tracker defaults.
 
 ## Local Photo Recognition
 
@@ -83,6 +83,8 @@ Recognition can improve placeholder titles, empty categories, tags, and generic 
 ## Browser Worker
 
 The worker reads approved, valid listings from the API and posts them through Facebook Marketplace in a persistent local browser profile. It never reads or stores credentials.
+
+For pickup, the worker fills Facebook's Location field from the listing location. When a pickup place or ZIP is configured, the app can apply that value to listings and also add a buyer-facing pickup sentence to each description.
 
 ```bash
 npm run post:live

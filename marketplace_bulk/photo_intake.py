@@ -10,7 +10,8 @@ from typing import Any
 from fastapi import UploadFile
 
 from .local_recognition import recognize_listing
-from .storage import DEFAULT_DB_PATH, DEFAULT_PROJECT_DIR, add_log, get_settings, upsert_listing
+from .storage import DEFAULT_DB_PATH, DEFAULT_PROJECT_DIR, add_log, default_listing_location, get_settings, upsert_listing
+from .validation import pickup_description_line
 
 
 UPLOAD_ROOT = DEFAULT_PROJECT_DIR / "uploads"
@@ -189,9 +190,9 @@ def commit_photo_batch(batch_id: str, groups: list[dict[str, Any]], db_path: Pat
                     f"Quantity: 1 unit available.\n\n"
                     f"Condition: {settings['default_condition']}.\n\n"
                     "Please confirm details, sizing, and fit from the photos before buying.\n\n"
-                    f"{settings['default_pickup_terms']} Shipping available through Facebook when supported; buyer pays shipping."
+                    f"{pickup_description_line(settings, bool(settings['shipping_enabled_default']))}"
                 ),
-                "location": settings["location"],
+                "location": default_listing_location(settings),
                 "pickup_enabled": True,
                 "shipping_enabled": bool(settings["shipping_enabled_default"]),
                 "package_weight_oz": settings.get("default_package_weight_oz"),

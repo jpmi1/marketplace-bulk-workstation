@@ -10,7 +10,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
-from .validation import sanitize_public_description, validate_listing
+from .validation import ensure_pickup_description_line, format_pickup_location, sanitize_public_description, validate_listing
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +21,8 @@ DEFAULT_DB_PATH = DEFAULT_PROJECT_DIR / "marketplace.db"
 DEFAULT_SETTINGS: dict[str, Any] = {
     "project_name": "Bulk Facebook Marketplace Poster",
     "location": "Your City, ST ZIP",
+    "pickup_place_name": "",
+    "pickup_zip_code": "",
     "default_condition": "Used - Good",
     "default_payment_terms": "Cash, Venmo, or Zelle accepted.",
     "default_pickup_terms": "Local pickup available.",
@@ -181,6 +183,10 @@ def update_settings(patch: dict[str, Any], db_path: Path = DEFAULT_DB_PATH) -> d
     return get_settings(db_path)
 
 
+def default_listing_location(settings: dict[str, Any]) -> str:
+    return format_pickup_location(settings) or str(settings.get("location") or "")
+
+
 def row_to_listing(row: sqlite3.Row, photos: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -289,7 +295,7 @@ def upsert_listing(data: dict[str, Any], db_path: Path = DEFAULT_DB_PATH) -> dic
                 data.get("category") or "",
                 data.get("quantity_text") or "",
                 description,
-                data.get("location") or settings["location"],
+                data.get("location") or default_listing_location(settings),
                 int(bool(data.get("pickup_enabled", True))),
                 int(bool(data.get("shipping_enabled", settings["shipping_enabled_default"]))),
                 data.get("package_weight_oz") or None,
@@ -434,6 +440,28 @@ def revalidate_all(db_path: Path = DEFAULT_DB_PATH) -> None:
         refresh_validation(listing["id"], db_path)
 
 
+def apply_pickup_location_to_listings(listing_ids: list[str] | None = None, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
+    settings = get_settings(db_path)
+    target_ids = set(listing_ids or [])
+    updated: list[str] = []
+    new_location = default_listing_location(settings)
+    for listing in list_listings(db_path=db_path):
+        if target_ids and listing["id"] not in target_ids:
+            continue
+        patch = {
+            "location": new_location,
+            "description": ensure_pickup_description_line(
+                listing.get("description") or "",
+                settings,
+                bool(listing.get("shipping_enabled")),
+            ),
+        }
+        patch_listing(listing["id"], patch, db_path)
+        updated.append(listing["id"])
+    add_log("info", f"Applied pickup location to {len(updated)} listings", details={"listing_ids": updated, "location": new_location}, db_path=db_path)
+    return {"updated": updated, "location": new_location}
+
+
 def export_posting_queue(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
     settings = get_settings(db_path)
     queue: list[dict[str, Any]] = []
@@ -457,7 +485,7 @@ def export_posting_queue(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]
                 "category": listing["category"],
                 "quantity_text": listing["quantity_text"],
                 "description": listing["description"],
-                "location": listing["location"] or settings["location"],
+                "location": listing["location"] or default_listing_location(settings),
                 "pickup_enabled": listing["pickup_enabled"],
                 "shipping_enabled": listing["shipping_enabled"],
                 "package_weight_oz": listing["package_weight_oz"] or settings.get("default_package_weight_oz"),

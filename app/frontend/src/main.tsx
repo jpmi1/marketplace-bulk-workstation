@@ -67,6 +67,8 @@ type Listing = {
 type AppSettings = {
   project_name: string;
   location: string;
+  pickup_place_name: string;
+  pickup_zip_code: string;
   default_condition: string;
   default_payment_terms: string;
   default_pickup_terms: string;
@@ -263,6 +265,15 @@ const api = {
       body: JSON.stringify({ data: { ids } }),
     }).then((res) => res.json());
   },
+  async applyPickupLocation(ids: string[] = []): Promise<{ updated: string[]; location: string }> {
+    const response = await fetch("/api/listings/apply-pickup-location", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: { ids } }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  },
 };
 
 function App() {
@@ -358,6 +369,15 @@ function App() {
     setSaving(false);
     setToast(`Deleted ${deleted.size} listing${deleted.size === 1 ? "" : "s"}`);
     window.setTimeout(() => setToast(""), 2200);
+  }
+
+  async function applyPickupLocation(ids: string[] = []) {
+    setSaving(true);
+    const result = await api.applyPickupLocation(ids);
+    await loadAll();
+    setSaving(false);
+    setToast(`Applied ${result.location || "pickup location"} to ${result.updated.length} listings`);
+    window.setTimeout(() => setToast(""), 2600);
   }
 
   async function importExisting() {
@@ -504,7 +524,13 @@ function App() {
         {view === "agents" && <AgentSetupView settings={settings} selectedIds={handoffIds} listings={listings} />}
         {view === "posting" && <PostingQueue listings={listings.filter((row) => row.approved)} settings={settings} />}
         {view === "logs" && <RunLog logs={logs} />}
-        {view === "settings" && settings && <SettingsView settings={settings} onSave={async (data) => setSettings(await api.patchSettings(data))} />}
+        {view === "settings" && settings && (
+          <SettingsView
+            settings={settings}
+            onSave={async (data) => setSettings(await api.patchSettings(data))}
+            onApplyPickupLocation={() => applyPickupLocation()}
+          />
+        )}
       </main>
     </div>
   );
@@ -1384,7 +1410,7 @@ function RunLog({ logs }: { logs: LogRow[] }) {
   );
 }
 
-function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (data: Partial<AppSettings>) => Promise<void> }) {
+function SettingsView({ settings, onSave, onApplyPickupLocation }: { settings: AppSettings; onSave: (data: Partial<AppSettings>) => Promise<void>; onApplyPickupLocation: () => Promise<void> }) {
   const [draft, setDraft] = useState(settings);
   useEffect(() => setDraft(settings), [settings]);
   return (
@@ -1396,7 +1422,9 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (da
         </div>
         <div className="form-grid settings-form">
           <Field label="Project name" wide><input value={draft.project_name} onChange={(event) => setDraft({ ...draft, project_name: event.target.value })} /></Field>
-          <Field label="Location"><input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} /></Field>
+          <Field label="Facebook map location"><input value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} /></Field>
+          <Field label="Pickup ZIP"><input inputMode="numeric" value={draft.pickup_zip_code || ""} onChange={(event) => setDraft({ ...draft, pickup_zip_code: event.target.value })} /></Field>
+          <Field label="Pickup place or complex" wide><input value={draft.pickup_place_name || ""} onChange={(event) => setDraft({ ...draft, pickup_place_name: event.target.value })} /></Field>
           <Field label="Default condition"><select value={draft.default_condition} onChange={(event) => setDraft({ ...draft, default_condition: event.target.value })}>{conditions.map((condition) => <option key={condition}>{condition}</option>)}</select></Field>
           <Field label="Batch size"><input type="number" min="1" max="50" value={draft.batch_size} onChange={(event) => setDraft({ ...draft, batch_size: Number(event.target.value) })} /></Field>
           <Field label="Default package weight"><input type="number" min="0" value={draft.default_package_weight_oz ?? ""} onChange={(event) => setDraft({ ...draft, default_package_weight_oz: event.target.value ? Number(event.target.value) : null })} /></Field>
@@ -1422,7 +1450,10 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (da
             <label><input type="checkbox" checked={draft.auto_publish} onChange={(event) => setDraft({ ...draft, auto_publish: event.target.checked })} /> Live-post approved listings</label>
           </div>
         </div>
-        <button className="primary" onClick={() => onSave(draft)}>Save settings</button>
+        <div className="approval-actions">
+          <button className="primary" onClick={() => onSave(draft)}>Save settings</button>
+          <button className="secondary" onClick={async () => { await onSave(draft); await onApplyPickupLocation(); }}>Apply pickup to listings</button>
+        </div>
       </div>
     </section>
   );

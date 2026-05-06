@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .storage import ROOT, get_settings, upsert_listing
+from .storage import ROOT, default_listing_location, get_settings, upsert_listing
 from .validation import public_inventory_description, sanitize_public_description
 
 
@@ -96,7 +96,7 @@ def import_photo_pipeline_queue(path: Path = PHOTO_QUEUE) -> int:
                 "category": row.get("category") or "",
                 "quantity_text": row.get("quantity_text") or "1 unit available",
                 "description": sanitize_public_description(row.get("description") or ""),
-                "location": settings["location"],
+                "location": default_listing_location(settings),
                 "pickup_enabled": True,
                 "shipping_enabled": True,
                 "package_weight_oz": row.get("package_weight_oz") or None,
@@ -160,6 +160,8 @@ def import_storage_inventory_review(path: Path = STORAGE_REVIEW_CSV) -> int:
                 product_title=row.get("Product page title") or "",
                 product_domain=product_domain(row.get("Product URL") or ""),
                 location=settings["location"],
+                pickup_place_name=settings.get("pickup_place_name") or "",
+                pickup_zip_code=settings.get("pickup_zip_code") or "",
                 shipping_enabled=True,
             )
             approved = saved.get("status") == "approved"
@@ -173,7 +175,7 @@ def import_storage_inventory_review(path: Path = STORAGE_REVIEW_CSV) -> int:
                     "category": category_from_storage(row.get("Category") or ""),
                     "quantity_text": row.get("Public quantity text") or "",
                     "description": description,
-                    "location": settings["location"],
+                    "location": default_listing_location(settings),
                     "pickup_enabled": True,
                     "shipping_enabled": True,
                     "private_notes": "; ".join(
@@ -232,7 +234,7 @@ def import_storage_approved_queue(path: Path = STORAGE_APPROVED_QUEUE) -> int:
                 "category": row.get("category") or "",
                 "quantity_text": row.get("public_quantity_text") or "",
                 "description": sanitize_public_description(row.get("description") or ""),
-                "location": settings["location"],
+                "location": default_listing_location(settings),
                 "pickup_enabled": True,
                 "shipping_enabled": True,
                 "approved": True,

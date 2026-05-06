@@ -98,6 +98,8 @@ Please confirm compatibility, sizing, and fit from the photos before buying.
 Local pickup in [location]. Shipping available through Facebook when supported; buyer pays shipping.
 ```
 
+When Settings has a pickup ZIP or apartment/place name, use that pickup location in the public pickup sentence. The app can apply the configured pickup location to existing listings from Settings; do not hardcode a user's private pickup place into source code or examples.
+
 Do not include:
 
 - internal notes
