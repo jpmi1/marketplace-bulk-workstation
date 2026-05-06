@@ -151,6 +151,11 @@ type IntakeBatch = {
 const conditions = ["New", "Used - Like New", "Used - Good", "Used - Fair"];
 const btcEntryTypes = ["sale_proceeds", "cash_set_aside", "btc_purchase", "referral_bonus", "adjustment"];
 const repoUrl = "https://github.com/jpmi1/marketplace-bulk-workstation";
+const facebookMarketplaceLinks = {
+  createListing: "https://www.facebook.com/marketplace/create/item",
+  drafts: "https://www.facebook.com/marketplace/you/selling?state=drafts",
+  listings: "https://www.facebook.com/marketplace/you/selling",
+};
 const formatUsd = (value?: number | null) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value || 0);
 const formatBtc = (value?: number | null) => `${(value || 0).toFixed(8)} BTC`;
 const photoSrc = (photo?: Photo) => {
@@ -933,6 +938,7 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
           <code>{repoUrl}</code>
           <button className="secondary compact" onClick={() => copy("repo", repoUrl)}><Copy size={15} /> Copy</button>
         </div>
+        <FacebookQuickLinks />
         {copied && <div className="validation ok"><Check size={16} /> Copied {copied}</div>}
       </div>
 
@@ -1277,6 +1283,7 @@ function PostingQueue({ listings, settings }: { listings: Listing[]; settings: A
         <h2>Posting Queue</h2>
         <p>{settings?.auto_publish ? "Live posting is enabled for approved listings." : "Live posting is off. Enable it in Settings before running the worker with --live."}</p>
       </div>
+      <FacebookQuickLinks />
       <div className="table">
         {listings.map((listing) => (
           <div className="table-row" key={listing.id}>
@@ -1289,6 +1296,22 @@ function PostingQueue({ listings, settings }: { listings: Listing[]; settings: A
         ))}
       </div>
     </section>
+  );
+}
+
+function FacebookQuickLinks() {
+  return (
+    <div className="facebook-links" aria-label="Facebook Marketplace shortcuts">
+      <a className="secondary link-button" href={facebookMarketplaceLinks.createListing} target="_blank" rel="noreferrer">
+        <ExternalLink size={16} /> Create listing
+      </a>
+      <a className="secondary link-button" href={facebookMarketplaceLinks.listings} target="_blank" rel="noreferrer">
+        <ExternalLink size={16} /> Marketplace listings
+      </a>
+      <a className="secondary link-button" href={facebookMarketplaceLinks.drafts} target="_blank" rel="noreferrer">
+        <ExternalLink size={16} /> Marketplace drafts
+      </a>
+    </div>
   );
 }
 

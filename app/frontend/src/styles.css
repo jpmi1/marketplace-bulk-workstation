@@ -845,6 +845,14 @@ textarea:focus-visible {
   margin-top: 12px;
 }
 
+.facebook-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 12px 0 16px;
+}
+
 .kraken-card {
   margin-top: 14px;
   border: 1px solid #fed7aa;
