@@ -161,9 +161,12 @@ function unique(values) {
 function facebookCategoryCandidates(value) {
   const lower = String(value || "").toLowerCase();
   const fallback = ["Household"];
-  if (lower.includes("video game")) return unique(["Video Games", "Electronics & computers", ...fallback]);
+  if (lower.includes("video game") || lower.includes("controller")) return unique(["Video Games", "Electronics & computers", ...fallback]);
+  if (lower.includes("smart home") || lower.includes("smart lighting") || lower.includes("hue") || lower.includes("echo")) return unique(["Household", "Electronics & computers", ...fallback]);
   if (lower.includes("electronics") || lower.includes("smart")) return unique(["Electronics & computers", "Household", ...fallback]);
+  if (lower.includes("home improvement") || lower.includes("mount") || lower.includes("solar") || lower.includes("strap")) return unique(["Tools", "Household", "Garden", ...fallback]);
   if (lower.includes("home") || lower.includes("mattress") || lower.includes("bedroom")) return unique(["Household", "Furniture", ...fallback]);
+  if (lower.includes("clothing") || lower.includes("costume") || lower.includes("shirt") || lower.includes("cap")) return unique(["Clothing & accessories", "Household", ...fallback]);
   return unique([leaf(value), ...fallback]);
 }
 
@@ -181,8 +184,34 @@ async function chooseDropdownValue(page, triggerPatterns, valuePatterns) {
     if (!opened.opened) await clickText(page, triggerPatterns);
     await page.waitForTimeout(800 + attempt * 500);
     if (await clickDropdownOption(page, valuePatterns, opened.minY)) return true;
+    for (let scroll = 0; scroll < 5; scroll += 1) {
+      await page.mouse.wheel(0, 360);
+      await page.waitForTimeout(350);
+      if (await clickDropdownOption(page, valuePatterns, opened.minY)) return true;
+    }
   }
   return false;
+}
+
+async function clickSuggestedChip(page, valuePatterns) {
+  for (const pattern of valuePatterns) {
+    const candidates = await page.getByText(pattern).all().catch(() => []);
+    for (const candidate of candidates) {
+      const box = await candidate.boundingBox().catch(() => null);
+      if (!box || box.width <= 0 || box.height <= 0) continue;
+      if (box.x > 360 || box.x < 10 || box.y < 250 || box.y > 560 || box.height > 52) continue;
+      await candidate.click({ force: true });
+      await page.waitForTimeout(600);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function chooseCategory(page, value) {
+  const patterns = facebookCategoryCandidates(value).map((candidate) => new RegExp(`^${escapeRegExp(candidate)}$`, "i"));
+  if (await clickSuggestedChip(page, patterns)) return true;
+  return chooseDropdownValue(page, [/category/i], patterns);
 }
 
 async function clickDropdownField(page, labelPatterns) {
@@ -261,7 +290,7 @@ async function fillListing(page, item) {
     title: await fillFirst(page, [/title/i], item.title),
     price: await fillFirst(page, [/price/i], item.price),
     description: await fillFirst(page, [/description/i], item.description),
-    category: await chooseDropdownValue(page, [/category/i], facebookCategoryCandidates(item.category).map((candidate) => new RegExp(`^${escapeRegExp(candidate)}\\b`, "i"))),
+    category: await chooseCategory(page, item.category),
     condition: await chooseDropdownValue(page, [/condition/i], [new RegExp(`^Used - ${facebookCondition(item.condition)}$`, "i"), new RegExp(`^${facebookCondition(item.condition)}$`, "i")]),
     location: await fillFirst(page, [/location/i], item.location),
   };
@@ -293,13 +322,13 @@ async function firstEnabledButton(page, pattern) {
 }
 
 async function maybePublish(page) {
-  for (let step = 0; step < 5; step += 1) {
-    await page.waitForTimeout(900);
+  for (let step = 0; step < 9; step += 1) {
+    await page.waitForTimeout(1200);
     const publish = await firstEnabledButton(page, /^publish$/i);
     if (publish) {
       await publish.click();
-      await page.waitForTimeout(2500);
-      return { published: true, step: "publish_clicked" };
+      const postedUrl = await waitForPostedUrl(page);
+      return { published: true, step: "publish_clicked", postedUrl };
     }
 
     const next = await firstEnabledButton(page, /^next$/i);
@@ -308,9 +337,41 @@ async function maybePublish(page) {
       continue;
     }
 
-    return { published: false, step: `no_enabled_publish_or_next_step_${step}` };
+    const skip = await firstEnabledButton(page, /^skip$/i);
+    if (skip) {
+      await skip.click();
+      continue;
+    }
+
+    const notNow = await firstEnabledButton(page, /^not now$/i);
+    if (notNow) {
+      await notNow.click();
+      continue;
+    }
+
+    return { published: false, step: `no_enabled_publish_next_or_skip_step_${step}` };
   }
   return { published: false, step: "publish_not_reached_after_steps" };
+}
+
+async function waitForPostedUrl(page) {
+  await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => null);
+  await page.waitForTimeout(3500);
+  const currentUrl = page.url();
+  if (/facebook\.com\/marketplace\/item\//i.test(currentUrl)) return currentUrl;
+  const itemLink = page.locator('a[href*="/marketplace/item/"]').first();
+  const href = await itemLink.getAttribute("href").catch(() => "");
+  if (!href) return currentUrl;
+  return href.startsWith("http") ? href : `https://www.facebook.com${href}`;
+}
+
+async function maybeSaveDraft(page) {
+  await page.waitForTimeout(900);
+  const saveDraft = await firstEnabledButton(page, /^save draft$/i);
+  if (!saveDraft) return { saved: false, step: "save_draft_not_available" };
+  await saveDraft.click();
+  await page.waitForTimeout(1800);
+  return { saved: true, step: "save_draft_clicked" };
 }
 
 async function main() {
@@ -351,9 +412,11 @@ async function main() {
           await apiPostLog(args.api, item, {
             status: publishResult.published ? "published" : "drafted",
             posting_status: publishResult.step,
+            posted_url: publishResult.postedUrl || "",
           });
         } else {
-          await apiPostLog(args.api, item, { status: "drafted", posting_status: `draft_filled screenshot=${shot}` });
+          const draftResult = await maybeSaveDraft(page);
+          await apiPostLog(args.api, item, { status: "drafted", posting_status: `${draftResult.step} screenshot=${shot}` });
         }
         console.log(`Filled ${item.id}: ${JSON.stringify(result)}`);
       } catch (error) {

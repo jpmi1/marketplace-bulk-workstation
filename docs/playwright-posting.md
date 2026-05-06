@@ -11,7 +11,7 @@ Facebook drafts are not a reliable handoff surface. Use draft mode only as a smo
 - Project setting: `auto_publish=true`
 - CLI flag: `--live` or `--publish-approved`
 
-If either gate is missing, the worker fills the listing and stops before Publish.
+If either gate is missing, the worker fills the listing, clicks `Save draft` when Facebook exposes it, and records the smoke-test result.
 
 ## Before Posting
 
@@ -34,7 +34,7 @@ npm run app
 
 ## Smoke-Test Mode
 
-Use draft mode only to verify selectors, login, and photo upload behavior:
+Use draft mode only to verify selectors, login, photo upload, category selection, and draft saving behavior:
 
 ```bash
 npm run post:drafts
@@ -46,6 +46,8 @@ node scripts/facebook_marketplace_worker.js --limit 5
 The worker reads `/api/posting-queue`, filters to approved and valid listings, uploads photos in saved order, fills fields, takes screenshots, and stores results under `projects/default/posting-runs/`.
 
 At startup, the worker first opens `https://www.facebook.com/marketplace` and waits for the login screen to clear. Posting begins only after the browser session appears ready.
+
+A successful smoke test should leave `posting_status` like `save_draft_clicked screenshot=...`. If it leaves `save_draft_not_available`, inspect the screenshot and do not assume Facebook saved anything.
 
 ## Live Posting Mode
 
@@ -67,6 +69,8 @@ PY
 
 Do not leave `auto_publish=true` after a live-posting run unless the user explicitly asks for that.
 
+After a live run, verify the item from the web app's `Marketplace listings` shortcut or open `https://www.facebook.com/marketplace/you/selling`. A successful run records `posting_status=publish_clicked` and keeps the local listing status as `published`.
+
 ## Worker Flags
 
 - `--api http://127.0.0.1:8766`: use a non-default API URL.
@@ -80,8 +84,10 @@ Do not leave `auto_publish=true` after a live-posting run unless the user explic
 Facebook Marketplace selectors change often. Prefer resilient Playwright patterns:
 
 - Use labels, roles, and visible text before CSS class names.
+- For category, try visible suggestion chips first. If no chip matches, click the field and scan/scroll the opened left-panel menu.
 - For dropdowns, click the visible field row, then select visible text from the opened left-panel menu.
 - Verify category and condition were actually selected before moving on.
+- Facebook may require several wizard screens after the item form. The worker should keep advancing through enabled `Next`, `Skip`, and `Not now` buttons until `Publish` is visible.
 - Treat disabled `Next` or `Publish` buttons as blocking validation, not success.
 - Only record `published` after clicking a visible enabled button named exactly `Publish`.
 - Capture a screenshot on each failure.

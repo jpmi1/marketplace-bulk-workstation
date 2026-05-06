@@ -914,7 +914,7 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
 
   function prompt(kind: "research" | "descriptions" | "post") {
     if (kind === "post") {
-      return `You are working in ${repoUrl}. Use the local Sell to 1 BTC app at http://127.0.0.1:8766. Post only these approved listing IDs live to Facebook: ${idText}. Facebook drafts are not a reliable handoff surface, so use scripts/facebook_marketplace_worker.js with --ids and --live for the selected listings after Settings has auto_publish=true. The worker opens Facebook and waits for the user to finish browser login before posting. Take screenshots on failure and update posting_status through the app.`;
+      return `You are working in ${repoUrl}. Use the local Sell to 1 BTC app at http://127.0.0.1:8766. Post only these approved listing IDs live to Facebook: ${idText}. Facebook drafts are not a reliable handoff surface, so use scripts/facebook_marketplace_worker.js with --ids and --live for the selected listings after Settings has auto_publish=true. The worker opens Facebook, waits for browser login, fills the item form, advances through enabled Next/Skip/Not now steps until Publish, and records posting_status through the app. Take screenshots on failure.`;
     }
     if (kind === "descriptions") {
       return `You are working in ${repoUrl}. Use the local app API at http://127.0.0.1:8766. Improve buyer-facing descriptions for these listing IDs: ${idText}. Do not include internal notes, pipeline language, or research notes in public descriptions. Save uncertainty in private_notes and patch results back through /api/listings/{id}. Current gates: ${gates}.`;

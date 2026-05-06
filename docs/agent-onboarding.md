@@ -63,7 +63,7 @@ Live posting is off by default. Agents may click final Publish only when:
 - Settings has `auto_publish=true`,
 - the worker is run with `--live` or `--publish-approved`.
 
-Otherwise use draft mode only as a smoke test. Facebook drafts are not a reliable final handoff surface:
+Otherwise use draft mode only as a smoke test. Facebook drafts are not a reliable final handoff surface, but the worker should still click `Save draft` when Facebook exposes it:
 
 ```bash
 npm run post:drafts

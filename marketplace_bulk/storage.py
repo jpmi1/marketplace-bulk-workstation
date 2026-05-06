@@ -409,7 +409,11 @@ def refresh_validation(listing_id: str, db_path: Path = DEFAULT_DB_PATH) -> None
         return
     issues = validate_listing(listing, get_settings(db_path))
     approved = bool(listing.get("approved")) and not any(issue["severity"] == "error" for issue in issues)
-    status = "approved" if approved else listing.get("status") or "needs_review"
+    status = listing.get("status") or "needs_review"
+    if approved and status not in {"drafted", "published", "failed"}:
+        status = "approved"
+    if not approved and status == "approved":
+        status = "needs_review"
     if any(issue["severity"] == "error" for issue in issues) and status == "approved":
         status = "needs_review"
     with connect(db_path) as conn:

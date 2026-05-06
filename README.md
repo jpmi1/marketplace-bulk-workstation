@@ -76,6 +76,8 @@ The worker reads approved, valid listings from the API and posts them through Fa
 npm run post:live
 ```
 
+Use draft mode only as a smoke test. It fills the form, tries to click Facebook's `Save draft` control, and records the result; live posting is the reliable final workflow.
+
 To allow final Publish clicks, both conditions must be true:
 
 - Settings page has `Live-post approved listings` enabled.

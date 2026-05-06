@@ -175,6 +175,29 @@ Local pickup available."""
             updated = update_settings({"manual_btc_usd_price": 90000, "progress_currency": "USD"}, db_path)
             self.assertEqual(updated["manual_btc_usd_price"], 90000)
 
+    def test_published_status_survives_validation_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "project.db"
+            listing = upsert_listing(
+                {
+                    "id": "posted-1",
+                    "title": "Posted test listing",
+                    "price": 10,
+                    "condition": "Used - Good",
+                    "category": "Household",
+                    "quantity_text": "1 available",
+                    "description": "Clean buyer-facing description.",
+                    "approved": True,
+                    "status": "approved",
+                    "photos": [{"id": "photo-1", "path": "/tmp/photo.jpg", "cover": True, "sort_order": 1}],
+                },
+                db_path,
+            )
+            self.assertEqual(listing["status"], "approved")
+            posted = upsert_listing({**listing, "status": "published", "posting_status": "publish_clicked", "posted_url": "https://www.facebook.com/marketplace/item/123"}, db_path)
+            self.assertEqual(posted["status"], "published")
+            self.assertEqual(posted["posted_url"], "https://www.facebook.com/marketplace/item/123")
+
 
 if __name__ == "__main__":
     unittest.main()

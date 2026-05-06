@@ -43,6 +43,8 @@ node scripts/facebook_marketplace_worker.js --prefix batch-2026-01 --live
 
 On launch, the worker opens Facebook in the configured persistent browser profile and pauses before posting until the user finishes any required login in that browser window. Never ask for or store Facebook credentials; let the user complete login directly in the browser.
 
+The worker should handle Facebook's multi-step flow by selecting category/condition, then advancing through enabled `Next`, `Skip`, or `Not now` buttons until a visible enabled `Publish` button appears. In non-live smoke tests, it should click `Save draft` when Facebook exposes that control and record `save_draft_clicked`; do not assume an unsaved filled form is a draft.
+
 To live-post approved listings, all of these must be true:
 
 1. The user explicitly asked for live posting.

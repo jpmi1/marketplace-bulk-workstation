@@ -64,7 +64,7 @@ Avoid owner-facing notes, unsupported testing claims, private pricing logic, and
 2. Review every field in the app: title, price, condition, category, quantity, description, location, shipping, weight, notes, photos.
 3. Resolve validation errors.
 4. Approve listings.
-5. Use draft mode only as a smoke test; it will wait for browser login before filling listings.
+5. Use draft mode only as a smoke test; it will wait for browser login, fill the form, and click `Save draft` when Facebook exposes it.
 6. For the final workflow, run live posting for approved listings because Facebook drafts are not a reliable review surface.
 
 ## Playwright Automation Workflow
@@ -96,6 +96,8 @@ PY
 ```
 
 Record a listing as `published` only after clicking a visible enabled Facebook button named exactly `Publish`. Clicking `Next` is progress, not proof of publication. If Facebook stalls, inspect the latest screenshot in `projects/default/posting-runs/`, retry one listing in smoke-test mode, and patch the reusable worker selectors.
+
+For the current Facebook Marketplace desktop flow, expect several screens: item details, category/condition/location validation, delivery or availability prompts, optional cross-post/group prompts, and final Publish. The worker should keep advancing through enabled `Next`, `Skip`, and `Not now` controls until it reaches `Publish`.
 
 For the complete operational checklist, see `docs/playwright-posting.md`.
 
