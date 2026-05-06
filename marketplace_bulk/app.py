@@ -46,7 +46,7 @@ class PatchBody(BaseModel):
 
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     init_db(db_path)
-    app = FastAPI(title="Sell to 1 BTC", version=__version__)
+    app = FastAPI(title="Bulk Facebook Marketplace Poster", version=__version__)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],

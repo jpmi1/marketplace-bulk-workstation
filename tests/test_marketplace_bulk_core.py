@@ -169,7 +169,7 @@ Local pickup available."""
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "project.db"
             settings = get_settings(db_path)
-            self.assertEqual(settings["project_name"], "Sell to 1 BTC")
+            self.assertEqual(settings["project_name"], "Bulk Facebook Marketplace Poster")
             self.assertEqual(settings["btc_goal_amount"], 1.0)
             self.assertEqual(settings["kraken_referral_url"], "")
             updated = update_settings({"manual_btc_usd_price": 90000, "progress_currency": "USD"}, db_path)

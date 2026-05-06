@@ -19,7 +19,7 @@ DEFAULT_DB_PATH = DEFAULT_PROJECT_DIR / "marketplace.db"
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "project_name": "Sell to 1 BTC",
+    "project_name": "Bulk Facebook Marketplace Poster",
     "location": "Your City, ST ZIP",
     "default_condition": "Used - Good",
     "default_payment_terms": "Cash, Venmo, or Zelle accepted.",
@@ -147,7 +147,8 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             if key not in existing:
                 conn.execute("insert into settings(key, value) values(?, ?)", (key, json.dumps(value)))
         project_name = conn.execute("select value from settings where key = 'project_name'").fetchone()
-        if project_name and json.loads(project_name["value"]) == "Marketplace Bulk Listing Workstation":
+        legacy_project_names = {"Marketplace Bulk Listing Workstation", "Sell to 1 BTC"}
+        if project_name and json.loads(project_name["value"]) in legacy_project_names:
             conn.execute("update settings set value = ? where key = 'project_name'", (json.dumps(DEFAULT_SETTINGS["project_name"]),))
 
 

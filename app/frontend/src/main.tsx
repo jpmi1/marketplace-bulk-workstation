@@ -383,16 +383,16 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">BTC</div>
+          <div className="brand-mark">FB</div>
           <div>
-            <strong>Sell to 1 BTC</strong>
-            <span>Used stuff tracker</span>
+            <strong>Bulk Facebook Marketplace Poster</strong>
+            <span>Path to 1 BTC side tracker</span>
           </div>
         </div>
         <nav aria-label="Main navigation">
           <NavButton icon={<UploadCloud />} label="Intake" active={view === "intake"} onClick={() => setView("intake")} />
           <NavButton icon={<LayoutDashboard />} label="Review" active={view === "review"} onClick={() => setView("review")} />
-          <NavButton icon={<Bitcoin />} label="BTC Goal" active={view === "btc"} onClick={() => setView("btc")} />
+          <NavButton icon={<Bitcoin />} label="Path to 1 BTC" active={view === "btc"} onClick={() => setView("btc")} />
           <NavButton icon={<Bot />} label="Agent Setup" active={view === "agents"} onClick={() => setView("agents")} />
           <NavButton icon={<ShipWheel />} label="Posting Queue" active={view === "posting"} onClick={() => setView("posting")} />
           <NavButton icon={<ClipboardList />} label="Run Log" active={view === "logs"} onClick={() => setView("logs")} />
@@ -405,8 +405,8 @@ function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <h1>{settings?.project_name || "Sell to 1 BTC"}</h1>
-            <p>Turn used stuff into Bitcoin progress · {listings.length} listings · {listings.filter((row) => row.approved).length} approved · {saving ? "Saving" : "Saved"}</p>
+            <h1>{settings?.project_name || "Bulk Facebook Marketplace Poster"}</h1>
+            <p>Bulk listing and live posting · Path to 1 BTC side tracker · {listings.length} listings · {listings.filter((row) => row.approved).length} approved · {saving ? "Saving" : "Saved"}</p>
           </div>
           <div className="topbar-actions">
             {toast && <span className="toast">{toast}</span>}
@@ -551,9 +551,9 @@ function BtcGoalView({
     <section className="btc-layout">
       <div className="btc-hero">
         <div>
-          <span className="eyebrow">Sell to 1 BTC</span>
-          <h2>Turn used stuff into Bitcoin progress</h2>
-          <p>Track proceeds, BTC buys, and manual progress locally. Export the ledger when you want to move it into Google Sheets.</p>
+          <span className="eyebrow">Path to 1 BTC</span>
+          <h2>Turn old stuff into Bitcoin progress</h2>
+          <p>A side tracker for sale proceeds, BTC buys, and manual progress. Set any goal amount, keep it local, and export the ledger when needed.</p>
         </div>
         <div className="btc-progress-ring" aria-label={`${summary.progress_percent.toFixed(1)} percent toward goal`}>
           <strong>{summary.progress_percent.toFixed(1)}%</strong>
@@ -624,7 +624,7 @@ function BtcGoalView({
             <button className="secondary compact" onClick={() => onSaveSettings(goalDraft)}>Save</button>
           </div>
           <div className="form-grid">
-            <Field label="Goal BTC"><input type="number" step="0.00000001" value={goalDraft.btc_goal_amount} onChange={(event) => setGoalDraft({ ...goalDraft, btc_goal_amount: Number(event.target.value) })} /></Field>
+            <Field label="Goal amount (BTC)"><input type="number" step="0.00000001" value={goalDraft.btc_goal_amount} onChange={(event) => setGoalDraft({ ...goalDraft, btc_goal_amount: Number(event.target.value) })} /></Field>
             <Field label="Current BTC"><input type="number" step="0.00000001" value={goalDraft.btc_owned} onChange={(event) => setGoalDraft({ ...goalDraft, btc_owned: Number(event.target.value) })} /></Field>
             <Field label="Manual BTC/USD"><input type="number" step="1" value={goalDraft.manual_btc_usd_price} onChange={(event) => setGoalDraft({ ...goalDraft, manual_btc_usd_price: Number(event.target.value) })} /></Field>
             <Field label="Google Sheet URL" wide><input value={goalDraft.google_sheet_url || ""} onChange={(event) => setGoalDraft({ ...goalDraft, google_sheet_url: event.target.value })} /></Field>
@@ -914,7 +914,7 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
 
   function prompt(kind: "research" | "descriptions" | "post") {
     if (kind === "post") {
-      return `You are working in ${repoUrl}. Use the local Sell to 1 BTC app at http://127.0.0.1:8766. Post only these approved listing IDs live to Facebook: ${idText}. Facebook drafts are not a reliable handoff surface, so use scripts/facebook_marketplace_worker.js with --ids and --live for the selected listings after Settings has auto_publish=true. The worker opens Facebook, waits for browser login, fills the item form, advances through enabled Next/Skip/Not now steps until Publish, and records posting_status through the app. Take screenshots on failure.`;
+      return `You are working in ${repoUrl}. Use the local Bulk Facebook Marketplace Poster app at http://127.0.0.1:8766. Post only these approved listing IDs live to Facebook: ${idText}. Facebook drafts are not a reliable handoff surface, so use scripts/facebook_marketplace_worker.js with --ids and --live for the selected listings after Settings has auto_publish=true. The worker opens Facebook, waits for browser login, fills the item form, advances through enabled Next/Skip/Not now steps until Publish, and records posting_status through the app. Take screenshots on failure.`;
     }
     if (kind === "descriptions") {
       return `You are working in ${repoUrl}. Use the local app API at http://127.0.0.1:8766. Improve buyer-facing descriptions for these listing IDs: ${idText}. Do not include internal notes, pipeline language, or research notes in public descriptions. Save uncertainty in private_notes and patch results back through /api/listings/{id}. Current gates: ${gates}.`;
@@ -1241,7 +1241,7 @@ function ListingEditor({ listing, onPatch, onApprove, onAddProceeds }: { listing
       <div className="approval-actions">
         <button className="primary" onClick={() => onApprove(listing.id, true)}><Check size={16} /> Approve</button>
         <button className="secondary" onClick={() => onApprove(listing.id, false)}>Unapprove</button>
-        <button className="secondary" disabled={!listing.price} onClick={() => onAddProceeds(listing)}><Bitcoin size={16} /> Add proceeds to BTC Goal</button>
+        <button className="secondary" disabled={!listing.price} onClick={() => onAddProceeds(listing)}><Bitcoin size={16} /> Add proceeds to Path to 1 BTC</button>
         <label className="reference-toggle">
           <input type="checkbox" checked={draft.reference_only_approved} onChange={(event) => onPatch(listing.id, { reference_only_approved: event.target.checked })} />
           Allow reference-only photos
@@ -1353,7 +1353,7 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (da
           <Field label="Batch size"><input type="number" min="1" max="50" value={draft.batch_size} onChange={(event) => setDraft({ ...draft, batch_size: Number(event.target.value) })} /></Field>
           <Field label="Default package weight"><input type="number" min="0" value={draft.default_package_weight_oz ?? ""} onChange={(event) => setDraft({ ...draft, default_package_weight_oz: event.target.value ? Number(event.target.value) : null })} /></Field>
           <Field label="Facebook browser profile" wide><input value={draft.facebook_profile_path} onChange={(event) => setDraft({ ...draft, facebook_profile_path: event.target.value })} /></Field>
-          <Field label="BTC goal"><input type="number" step="0.00000001" value={draft.btc_goal_amount} onChange={(event) => setDraft({ ...draft, btc_goal_amount: Number(event.target.value) })} /></Field>
+          <Field label="Goal amount (BTC)"><input type="number" step="0.00000001" value={draft.btc_goal_amount} onChange={(event) => setDraft({ ...draft, btc_goal_amount: Number(event.target.value) })} /></Field>
           <Field label="Current BTC owned"><input type="number" step="0.00000001" value={draft.btc_owned} onChange={(event) => setDraft({ ...draft, btc_owned: Number(event.target.value) })} /></Field>
           <Field label="Manual BTC/USD price"><input type="number" min="0" value={draft.manual_btc_usd_price} onChange={(event) => setDraft({ ...draft, manual_btc_usd_price: Number(event.target.value) })} /></Field>
           <Field label="Progress currency"><input value={draft.progress_currency} onChange={(event) => setDraft({ ...draft, progress_currency: event.target.value })} /></Field>

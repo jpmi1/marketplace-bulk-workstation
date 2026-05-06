@@ -1,7 +1,7 @@
 [project]
 name = "marketplace-bulk-workstation"
 version = "0.1.0"
-description = "Sell to 1 BTC local-first Marketplace listing and progress tracker."
+description = "Bulk Facebook Marketplace Poster with a Path to 1 BTC side tracker."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi",
