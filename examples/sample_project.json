@@ -1,0 +1,31 @@
+{
+  "settings": {
+    "project_name": "Generic Demo Marketplace Project",
+    "location": "Your City, ST ZIP",
+    "image_research_enabled": false,
+    "comp_research_enabled": false,
+    "auto_publish": false
+  },
+  "listings": [
+    {
+      "id": "demo-001",
+      "title": "Generic Desk Lamp",
+      "price": 18,
+      "condition": "Used - Good",
+      "category": "Home Goods",
+      "quantity_text": "1 unit available",
+      "description": "Selling a generic desk lamp.\n\nCondition: Used - Good.\n\nLocal pickup available. Shipping available through Facebook when supported; buyer pays shipping.",
+      "photos": []
+    },
+    {
+      "id": "demo-002",
+      "title": "Generic Game Controller",
+      "price": 22,
+      "condition": "Used - Fair",
+      "category": "Video Games",
+      "quantity_text": "1 unit available",
+      "description": "Selling a generic game controller.\n\nCondition: Used - Fair.\n\nLocal pickup available. Shipping available through Facebook when supported; buyer pays shipping.",
+      "photos": []
+    }
+  ]
+}

@@ -8,11 +8,14 @@ app/frontend/dist/
 
 .playwright-mcp/
 projects/*/*.db
+projects/*/uploads/
+projects/*/intake-batches/
 projects/*/posting-runs/
 outputs/
 data/
 IMG_*
 Screenshot *.PNG
+marketplace-*-ui.png
 *.HEIC
 
 # Legacy one-off scripts can include private inventory context.

@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+import json
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.responses import FileResponse
@@ -12,6 +14,7 @@ from pydantic import BaseModel
 
 from . import __version__
 from .importers import import_existing_outputs
+from .photo_intake import commit_photo_batch, create_photo_batch, get_batch, photo_asset_path
 from .storage import (
     DEFAULT_DB_PATH,
     ROOT,
@@ -121,6 +124,43 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     @app.post("/api/intake/existing-outputs")
     def intake_existing() -> dict[str, int]:
         return import_existing_outputs()
+
+    @app.post("/api/intake/photos")
+    async def intake_photos(files: list[UploadFile] = File(...), metadata: str = Form("[]")) -> dict[str, Any]:
+        try:
+            parsed_metadata = json.loads(metadata or "[]")
+            if not isinstance(parsed_metadata, list):
+                parsed_metadata = []
+        except json.JSONDecodeError:
+            parsed_metadata = []
+        return await create_photo_batch(files, parsed_metadata, db_path)
+
+    @app.get("/api/intake/batches/{batch_id}")
+    def intake_batch(batch_id: str) -> dict[str, Any]:
+        try:
+            return get_batch(batch_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Intake batch not found") from None
+
+    @app.get("/api/intake/batches/{batch_id}/photos/{photo_id}")
+    def intake_photo_asset(batch_id: str, photo_id: str) -> FileResponse:
+        try:
+            path = photo_asset_path(batch_id, photo_id)
+        except KeyError:
+            path = None
+        if path and path.exists():
+            return FileResponse(path)
+        raise HTTPException(status_code=404, detail="Intake photo not found")
+
+    @app.post("/api/intake/photo-groups/{batch_id}/commit")
+    def intake_photo_groups_commit(batch_id: str, body: PatchBody) -> dict[str, Any]:
+        groups = body.data.get("groups", [])
+        if not isinstance(groups, list):
+            groups = []
+        try:
+            return commit_photo_batch(batch_id, groups, db_path)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Intake batch not found") from None
 
     @app.get("/api/posting-queue")
     def posting_queue() -> list[dict[str, Any]]:

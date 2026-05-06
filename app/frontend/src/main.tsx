@@ -1,12 +1,17 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertCircle,
+  Bot,
   Check,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Copy,
+  FileText,
+  Github,
   ImageOff,
+  Images,
   LayoutDashboard,
   RefreshCw,
   Search,
@@ -14,6 +19,7 @@ import {
   ShipWheel,
   Trash2,
   Upload,
+  UploadCloud,
 } from "lucide-react";
 import "./styles.css";
 
@@ -71,8 +77,34 @@ type AppSettings = {
   forbidden_public_phrases: string[];
 };
 type LogRow = { id: number; listing_id: string | null; level: string; message: string; created_at: string };
+type IntakePhoto = {
+  id: string;
+  name: string;
+  uri: string;
+  path: string;
+  last_modified?: number;
+  removed: boolean;
+  cover: boolean;
+  sort_order: number;
+};
+type IntakeGroup = {
+  id: string;
+  title: string;
+  photo_ids: string[];
+  removed_photo_ids: string[];
+  cover_photo_id: string;
+};
+type IntakeBatch = {
+  id: string;
+  photos: IntakePhoto[];
+  groups: IntakeGroup[];
+  status: string;
+  created_count: number;
+  created_listing_ids?: string[];
+};
 
 const conditions = ["New", "Used - Like New", "Used - Good", "Used - Fair"];
+const repoUrl = "https://github.com/jpmi1/marketplace-bulk-workstation";
 const photoSrc = (photo?: Photo) => {
   if (!photo) return "";
   return photo.path ? `/api/assets/photos/${encodeURIComponent(photo.id)}` : photo.uri;
@@ -89,6 +121,23 @@ const api = {
   },
   async importExisting(): Promise<Record<string, number>> {
     return fetch("/api/intake/existing-outputs", { method: "POST" }).then((res) => res.json());
+  },
+  async uploadPhotoIntake(files: File[]): Promise<IntakeBatch> {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    form.append("metadata", JSON.stringify(files.map((file) => ({ name: file.name, size: file.size, type: file.type, lastModified: file.lastModified }))));
+    const response = await fetch("/api/intake/photos", { method: "POST", body: form });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  },
+  async commitPhotoBatch(batchId: string, groups: IntakeGroup[]): Promise<{ batch_id: string; created: string[] }> {
+    const response = await fetch(`/api/intake/photo-groups/${encodeURIComponent(batchId)}/commit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: { groups } }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
   },
   async patchListing(id: string, data: Partial<Listing>): Promise<Listing> {
     return fetch(`/api/listings/${encodeURIComponent(id)}`, {
@@ -128,7 +177,7 @@ const api = {
 };
 
 function App() {
-  const [view, setView] = useState<"review" | "posting" | "settings" | "logs">("review");
+  const [view, setView] = useState<"intake" | "review" | "agents" | "posting" | "settings" | "logs">("intake");
   const [listings, setListings] = useState<Listing[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [logs, setLogs] = useState<LogRow[]>([]);
@@ -160,6 +209,7 @@ function App() {
     });
   }, [listings, query, statusFilter]);
   const selected = filtered.find((listing) => listing.id === selectedId) || filtered[0];
+  const handoffIds = checkedListingIds.length ? checkedListingIds : selected?.id ? [selected.id] : [];
 
   async function mutateListing(id: string, data: Partial<Listing>) {
     setSaving(true);
@@ -208,6 +258,17 @@ function App() {
     window.setTimeout(() => setToast(""), 2500);
   }
 
+  async function commitPhotoBatch(batchId: string, groups: IntakeGroup[]) {
+    setSaving(true);
+    const result = await api.commitPhotoBatch(batchId, groups);
+    await loadAll();
+    setSelectedId(result.created[0] || "");
+    setView("review");
+    setSaving(false);
+    setToast(`Created ${result.created.length} listing${result.created.length === 1 ? "" : "s"}`);
+    window.setTimeout(() => setToast(""), 2500);
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -219,7 +280,9 @@ function App() {
           </div>
         </div>
         <nav aria-label="Main navigation">
+          <NavButton icon={<UploadCloud />} label="Intake" active={view === "intake"} onClick={() => setView("intake")} />
           <NavButton icon={<LayoutDashboard />} label="Review" active={view === "review"} onClick={() => setView("review")} />
+          <NavButton icon={<Bot />} label="Agent Setup" active={view === "agents"} onClick={() => setView("agents")} />
           <NavButton icon={<ShipWheel />} label="Posting Queue" active={view === "posting"} onClick={() => setView("posting")} />
           <NavButton icon={<ClipboardList />} label="Run Log" active={view === "logs"} onClick={() => setView("logs")} />
           <NavButton icon={<Settings />} label="Settings" active={view === "settings"} onClick={() => setView("settings")} />
@@ -241,6 +304,16 @@ function App() {
             </button>
           </div>
         </header>
+        {view === "intake" && settings && (
+          <IntakeView
+            settings={settings}
+            onUploaded={(message) => {
+              setToast(message);
+              window.setTimeout(() => setToast(""), 2200);
+            }}
+            onCommit={commitPhotoBatch}
+          />
+        )}
         {view === "review" && (
           <ReviewView
             listings={filtered}
@@ -262,6 +335,7 @@ function App() {
             onApprove={approve}
           />
         )}
+        {view === "agents" && <AgentSetupView settings={settings} selectedIds={handoffIds} listings={listings} />}
         {view === "posting" && <PostingQueue listings={listings.filter((row) => row.approved)} settings={settings} />}
         {view === "logs" && <RunLog logs={logs} />}
         {view === "settings" && settings && <SettingsView settings={settings} onSave={async (data) => setSettings(await api.patchSettings(data))} />}
@@ -276,6 +350,323 @@ function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; la
       {icon}
       <span>{label}</span>
     </button>
+  );
+}
+
+function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings; onUploaded: (message: string) => void; onCommit: (batchId: string, groups: IntakeGroup[]) => Promise<void> }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [batch, setBatch] = useState<IntakeBatch | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const photosById = useMemo(() => new Map((batch?.photos || []).map((photo) => [photo.id, photo])), [batch]);
+
+  async function uploadFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList).filter((file) => file.type.startsWith("image/") || /\.(jpe?g|png|heic|heif|webp)$/i.test(file.name));
+    if (!files.length) {
+      onUploaded("No image files found");
+      return;
+    }
+    setUploading(true);
+    try {
+      const nextBatch = await api.uploadPhotoIntake(files);
+      setBatch(nextBatch);
+      onUploaded(`Uploaded ${nextBatch.photos.length} photos`);
+    } catch (error) {
+      onUploaded(`Upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function setGroups(groups: IntakeGroup[]) {
+    setBatch((current) => current ? { ...current, groups } : current);
+  }
+
+  function updateGroup(groupId: string, patch: Partial<IntakeGroup>) {
+    setGroups((batch?.groups || []).map((group) => group.id === groupId ? { ...group, ...patch } : group));
+  }
+
+  function movePhoto(photoId: string, fromGroupId: string, toGroupId: string) {
+    const groups = (batch?.groups || []).map((group) => ({ ...group, photo_ids: [...group.photo_ids] }));
+    const from = groups.find((group) => group.id === fromGroupId);
+    const to = groups.find((group) => group.id === toGroupId);
+    if (!from || !to) return;
+    from.photo_ids = from.photo_ids.filter((id) => id !== photoId);
+    to.photo_ids.push(photoId);
+    if (!from.cover_photo_id || from.cover_photo_id === photoId) from.cover_photo_id = from.photo_ids[0] || "";
+    if (!to.cover_photo_id) to.cover_photo_id = photoId;
+    setGroups(groups);
+  }
+
+  function movePhotoToNewGroup(photoId: string, fromGroupId: string) {
+    const groups = (batch?.groups || []).map((group) => ({ ...group, photo_ids: [...group.photo_ids] }));
+    const from = groups.find((group) => group.id === fromGroupId);
+    if (!from) return;
+    from.photo_ids = from.photo_ids.filter((id) => id !== photoId);
+    if (from.cover_photo_id === photoId) from.cover_photo_id = from.photo_ids[0] || "";
+    groups.push({
+      id: `group-${Date.now()}`,
+      title: `Photo group ${groups.length + 1}`,
+      photo_ids: [photoId],
+      removed_photo_ids: [],
+      cover_photo_id: photoId,
+    });
+    setGroups(groups);
+  }
+
+  function mergeGroup(index: number) {
+    const groups = [...(batch?.groups || [])];
+    if (index <= 0) return;
+    const previous = groups[index - 1];
+    const current = groups[index];
+    previous.photo_ids = [...previous.photo_ids, ...current.photo_ids];
+    previous.removed_photo_ids = [...new Set([...previous.removed_photo_ids, ...current.removed_photo_ids])];
+    groups.splice(index, 1);
+    setGroups(groups);
+  }
+
+  function toggleRemoved(group: IntakeGroup, photoId: string) {
+    const removed = new Set(group.removed_photo_ids || []);
+    if (removed.has(photoId)) removed.delete(photoId);
+    else removed.add(photoId);
+    const nextRemoved = [...removed];
+    const activeIds = group.photo_ids.filter((id) => !removed.has(id));
+    updateGroup(group.id, {
+      removed_photo_ids: nextRemoved,
+      cover_photo_id: activeIds.includes(group.cover_photo_id) ? group.cover_photo_id : activeIds[0] || "",
+    });
+  }
+
+  const activeGroupCount = (batch?.groups || []).filter((group) => group.photo_ids.some((id) => !(group.removed_photo_ids || []).includes(id))).length;
+
+  return (
+    <section className="intake-layout">
+      <div className="page-section intro-panel">
+        <div className="section-header">
+          <div>
+            <span className="eyebrow">Photo intake</span>
+            <h2>Drop photos, then turn groups into draft listings</h2>
+            <p>Original photos stay untouched. Uploaded copies are stored in the local project and start as needs-review listings.</p>
+          </div>
+          <span className="pill green">{settings.default_condition}</span>
+        </div>
+        <div
+          className={`dropzone ${dragging ? "dragging" : ""}`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            uploadFiles(event.dataTransfer.files);
+          }}
+        >
+          <UploadCloud size={30} />
+          <strong>{uploading ? "Uploading photos..." : "Drag photos here"}</strong>
+          <span>or choose JPG, PNG, HEIC, HEIF, or WebP files</span>
+          <button type="button" className="primary" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+            <Upload size={16} /> Choose photos
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,.heic,.heif"
+            multiple
+            onChange={(event) => {
+              if (event.target.files) uploadFiles(event.target.files);
+              event.currentTarget.value = "";
+            }}
+          />
+        </div>
+      </div>
+
+      {batch ? (
+        <div className="page-section">
+          <div className="section-header">
+            <div>
+              <h2>{batch.photos.length} photos in {batch.groups.length} groups</h2>
+              <p>Use these groups as the starting point. Move photos, set covers, then create listings.</p>
+            </div>
+            <button className="primary" disabled={!activeGroupCount} onClick={() => onCommit(batch.id, batch.groups)}>
+              <Check size={16} /> Create {activeGroupCount} listings
+            </button>
+          </div>
+          <div className="intake-groups">
+            {batch.groups.map((group, index) => {
+              const activePhotos = group.photo_ids.filter((id) => !group.removed_photo_ids.includes(id));
+              return (
+                <div className="intake-group" key={group.id}>
+                  <div className="group-header">
+                    <input value={group.title} onChange={(event) => updateGroup(group.id, { title: event.target.value })} aria-label="Group title" />
+                    <button className="secondary compact" disabled={index === 0} onClick={() => mergeGroup(index)}>Merge up</button>
+                  </div>
+                  <div className="intake-photo-grid">
+                    {group.photo_ids.map((photoId) => {
+                      const photo = photosById.get(photoId);
+                      if (!photo) return null;
+                      const removed = group.removed_photo_ids.includes(photoId);
+                      return (
+                        <div className={`intake-photo ${removed ? "removed" : ""}`} key={photoId}>
+                          <button className={`thumb-button ${group.cover_photo_id === photoId ? "cover" : ""}`} onClick={() => updateGroup(group.id, { cover_photo_id: photoId })}>
+                            <img src={photo.uri} alt={photo.name} loading="lazy" />
+                          </button>
+                          <strong>{photo.name}</strong>
+                          <div className="thumb-actions">
+                            <button onClick={() => toggleRemoved(group, photoId)}>{removed ? "Restore" : "Remove"}</button>
+                            <button onClick={() => movePhotoToNewGroup(photoId, group.id)}>New group</button>
+                          </div>
+                          {batch.groups.length > 1 && (
+                            <select value="" onChange={(event) => event.target.value && movePhoto(photoId, group.id, event.target.value)} aria-label="Move photo to group">
+                              <option value="">Move to...</option>
+                              {batch.groups.filter((target) => target.id !== group.id).map((target) => <option value={target.id} key={target.id}>{target.title}</option>)}
+                            </select>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <small>{activePhotos.length} active photo{activePhotos.length === 1 ? "" : "s"}</small>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="page-section">
+          <EmptyState title="No upload batch yet" action="Drop a set of item photos to start the import process." />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSettings | null; selectedIds: string[]; listings: Listing[] }) {
+  const [copied, setCopied] = useState("");
+  const selectedListings = listings.filter((listing) => selectedIds.includes(listing.id));
+  const idText = selectedIds.length ? selectedIds.join(", ") : "No listings selected";
+  const gates = `comp_research_enabled=${Boolean(settings?.comp_research_enabled)}, image_research_enabled=${Boolean(settings?.image_research_enabled)}, auto_publish=${Boolean(settings?.auto_publish)}`;
+
+  async function copy(label: string, text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(label);
+    window.setTimeout(() => setCopied(""), 1600);
+  }
+
+  function prompt(kind: "research" | "descriptions" | "post") {
+    if (kind === "post") {
+      return `You are working in ${repoUrl}. Use the local Marketplace Bulk Workstation at http://127.0.0.1:8766. Post only these approved listing IDs: ${idText}. Use scripts/facebook_marketplace_worker.js with --ids for the selected listings. Keep auto-publish off unless I explicitly enable it in Settings and ask for --publish-approved. Take screenshots on failure and update posting_status through the app.`;
+    }
+    if (kind === "descriptions") {
+      return `You are working in ${repoUrl}. Use the local app API at http://127.0.0.1:8766. Improve buyer-facing descriptions for these listing IDs: ${idText}. Do not include internal notes, pipeline language, or research notes in public descriptions. Save uncertainty in private_notes and patch results back through /api/listings/{id}. Current gates: ${gates}.`;
+    }
+    return `You are working in ${repoUrl}. Use the local app API at http://127.0.0.1:8766. Research selected listings: ${idText}. Respect settings before searching: ${gates}. If comp_research_enabled=false, do not search prices. If image_research_enabled=false, do not find extra photos. Save source links, confidence, recommended price, private notes, and any web image candidates back through the app API. Do not approve listings unless I explicitly ask.`;
+  }
+
+  return (
+    <section className="agent-layout">
+      <div className="page-section intro-panel">
+        <div className="section-header">
+          <div>
+            <span className="eyebrow">Agent setup</span>
+            <h2>Best with Codex or Claude Code</h2>
+            <p>Open this GitHub repo in your agent app, then use scoped prompts from this workstation for research, cleanup, and posting automation.</p>
+          </div>
+          <Bot size={28} />
+        </div>
+        <div className="repo-copy">
+          <Github size={18} />
+          <code>{repoUrl}</code>
+          <button className="secondary compact" onClick={() => copy("repo", repoUrl)}><Copy size={15} /> Copy</button>
+        </div>
+        {copied && <div className="validation ok"><Check size={16} /> Copied {copied}</div>}
+      </div>
+
+      <div className="agent-cards">
+        <SetupCard
+          title="Open in Codex"
+          body="Install or open Codex, connect GitHub if available, then open this repo. If the connector is unavailable, clone locally and run the commands below."
+          command={`git clone ${repoUrl}.git\ncd marketplace-bulk-workstation\nnpm install && npm --prefix app/frontend install\nnpm run frontend:build\nnpm run app`}
+          onCopy={(text) => copy("Codex setup", text)}
+        />
+        <SetupCard
+          title="Open in Claude Code"
+          body="Clone the repo, open the folder in Claude Code, and authenticate GitHub locally when you want Claude to push changes."
+          command={`git clone ${repoUrl}.git\ncd marketplace-bulk-workstation\ngh auth login\nnpm run app`}
+          onCopy={(text) => copy("Claude setup", text)}
+        />
+        <SetupCard
+          title="Verify posting access"
+          body="Keep Facebook credentials in the browser only. Use the worker profile to login, then run draft mode first."
+          command={`npm run post:drafts\nnode scripts/facebook_marketplace_worker.js --ids ${selectedIds[0] || "example-001"}`}
+          onCopy={(text) => copy("posting check", text)}
+        />
+      </div>
+
+      <div className="page-section">
+        <div className="section-header">
+          <div>
+            <h2>Agent handoff prompts</h2>
+            <p>{selectedIds.length ? `${selectedIds.length} selected listing${selectedIds.length === 1 ? "" : "s"}` : "Select listings in Review first, or edit the copied prompt."}</p>
+          </div>
+          <FileText size={24} />
+        </div>
+        <div className="handoff-grid">
+          <PromptCard title="Research selected" text={prompt("research")} onCopy={(text) => copy("research prompt", text)} />
+          <PromptCard title="Improve descriptions" text={prompt("descriptions")} onCopy={(text) => copy("description prompt", text)} />
+          <PromptCard title="Post approved" text={prompt("post")} onCopy={(text) => copy("posting prompt", text)} />
+        </div>
+        <div className="checklist">
+          <span><Check size={15} /> Local app reachable at 127.0.0.1:8766</span>
+          <span className={settings?.comp_research_enabled ? "ready" : ""}><Search size={15} /> Comp research {settings?.comp_research_enabled ? "enabled" : "off"}</span>
+          <span className={settings?.image_research_enabled ? "ready" : ""}><Images size={15} /> Image research {settings?.image_research_enabled ? "enabled" : "off"}</span>
+          <span><ShipWheel size={15} /> Facebook login verified in browser profile before posting</span>
+        </div>
+      </div>
+      {selectedListings.length > 0 && (
+        <div className="page-section">
+          <div className="section-header">
+            <h2>Selected context</h2>
+          </div>
+          <div className="table compact-table">
+            {selectedListings.map((listing) => (
+              <div className="table-row" key={listing.id}>
+                <strong>{listing.id}</strong>
+                <span>{listing.title || "Untitled"}</span>
+                <span>{listing.approved ? "Approved" : "Review"}</span>
+                <span>{listing.photos.filter((photo) => !photo.removed).length} photos</span>
+                <span>{listing.validation.length} checks</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SetupCard({ title, body, command, onCopy }: { title: string; body: string; command: string; onCopy: (text: string) => void }) {
+  return (
+    <div className="setup-card">
+      <h3>{title}</h3>
+      <p>{body}</p>
+      <pre>{command}</pre>
+      <button className="secondary compact" onClick={() => onCopy(command)}><Copy size={15} /> Copy commands</button>
+    </div>
+  );
+}
+
+function PromptCard({ title, text, onCopy }: { title: string; text: string; onCopy: (text: string) => void }) {
+  return (
+    <div className="prompt-card">
+      <div>
+        <h3>{title}</h3>
+        <p>{text}</p>
+      </div>
+      <button className="secondary compact" onClick={() => onCopy(text)}><Copy size={15} /> Copy prompt</button>
+    </div>
   );
 }
 

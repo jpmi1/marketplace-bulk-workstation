@@ -3,10 +3,11 @@
 This repo is a local-first workstation for bulk Facebook Marketplace listings. It can ingest photo-folder outputs and Excel/CSV inventory outputs, centralize edits in a SQLite project database, provide a React approval dashboard, export approved posting queues, and drive Facebook Marketplace through the user's logged-in browser profile.
 
 1. Generate or import listing candidates.
-2. Review and edit every listing field in the app.
-3. Approve only valid listings.
-4. Use the browser worker to create Facebook drafts.
-5. Publish manually by default, or enable auto-publish explicitly in Settings.
+2. Upload photos or inventory through the local app.
+3. Review and edit every listing field in the app.
+4. Use Codex or Claude Code for gated research and cleanup.
+5. Use the browser worker to create Facebook drafts.
+6. Publish manually by default, or enable auto-publish explicitly in Settings.
 
 ## Local App
 
@@ -44,6 +45,16 @@ python3 ../../scripts/marketplace_app.py
 
 Then open `http://127.0.0.1:8766`.
 
+## Photo Intake
+
+Open the `Intake` screen, drag in item photos, review the timestamp/filename groups, remove mismatched photos, set cover photos, and create `needs_review` listings. Uploaded files are copied into the local project folder and should never be committed.
+
+## Codex and Claude Code
+
+The app is designed to work best with Codex or Claude Code. Use the `Agent Setup` screen to copy the GitHub repo URL, setup commands, and scoped prompts for selected listings. Agents should use the local app API to save research results and should respect the research toggles in Settings.
+
+See `docs/agent-onboarding.md` for the full setup flow.
+
 ## Browser Worker
 
 The worker reads approved, valid listings from the API and fills Facebook Marketplace drafts in a persistent local browser profile. It never reads or stores credentials.
@@ -80,6 +91,7 @@ See `docs/playwright-posting.md` for the full Codex/Claude Playwright workflow, 
 - `scripts/facebook_marketplace_worker.js` contains the reusable Playwright posting worker.
 - `docs/agent-playbook.md` explains how Codex or Claude Code should identify products, research comps/photos, write descriptions, and preserve confidence flags.
 - `docs/research-pipeline.md` explains the gated research workflow for price comps, product facts, and additional images.
+- `docs/agent-onboarding.md` explains how to open the repo in Codex or Claude Code and connect GitHub safely.
 - `AGENTS.md` and `CLAUDE.md` give future coding agents the repo rules for safe automation and Git hygiene.
 
 ## Review Dashboard
@@ -99,6 +111,7 @@ The Settings page controls location, defaults, shipping behavior, browser profil
 - `examples/generic_template_item.json` shows the listing shape used by the local project store.
 - `examples/generic_inventory_template.csv` shows a simple inventory upload shape.
 - `examples/research_result_template.json` shows the patch format agents can use to save research results back to the app.
+- `examples/sample_project.json` shows a generic demo project shape.
 
 These examples are intentionally generic. Do not commit real photos, inventory exports, posting outputs, browser profiles, or SQLite project databases.
 

@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from marketplace_bulk.photo_intake import commit_photo_batch, get_batch, group_photos, save_batch
 from marketplace_bulk.storage import approve_listing, delete_listings, get_settings, list_listings, upsert_listing
 from marketplace_bulk.validation import public_inventory_description, sanitize_public_description
 
@@ -73,6 +74,50 @@ Local pickup available."""
             self.assertEqual(len(list_listings(db_path=db_path)), 1)
             self.assertEqual(delete_listings(["test-1", "missing"], db_path), ["test-1"])
             self.assertEqual(list_listings(db_path=db_path), [])
+
+    def test_photo_intake_groups_and_commits_uploaded_photos(self):
+        photos = [
+            {"id": "p1", "name": "001.jpg", "last_modified": 1000, "path": "/tmp/001.jpg"},
+            {"id": "p2", "name": "002.jpg", "last_modified": 2000, "path": "/tmp/002.jpg"},
+            {"id": "p3", "name": "003.jpg", "last_modified": 600000, "path": "/tmp/003.jpg"},
+        ]
+        groups = group_photos(photos)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]["photo_ids"], ["p1", "p2"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "project.db"
+            photo_path = Path(tmp) / "photo.jpg"
+            photo_path.write_bytes(b"fake image bytes")
+            batch_id = "batch-test-intake"
+            save_batch(
+                {
+                    "id": batch_id,
+                    "photos": [
+                        {
+                            "id": "photo-1",
+                            "name": "photo.jpg",
+                            "path": str(photo_path),
+                            "uri": "/api/intake/batches/batch-test-intake/photos/photo-1",
+                        }
+                    ],
+                    "groups": [
+                        {
+                            "id": "group-001",
+                            "title": "Uploaded item",
+                            "photo_ids": ["photo-1"],
+                            "removed_photo_ids": [],
+                            "cover_photo_id": "photo-1",
+                        }
+                    ],
+                    "status": "uploaded",
+                }
+            )
+            result = commit_photo_batch(batch_id, get_batch(batch_id)["groups"], db_path)
+            self.assertEqual(len(result["created"]), 1)
+            listings = list_listings(db_path=db_path)
+            self.assertEqual(listings[0]["source"], "photo_upload")
+            self.assertEqual(listings[0]["photos"][0]["path"], str(photo_path))
 
 
 if __name__ == "__main__":
