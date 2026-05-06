@@ -96,6 +96,7 @@ async function fillFirst(page, labels, value) {
   for (const label of labels) {
     const target = await firstVisible([page.getByLabel(label), page.getByPlaceholder(label), page.getByRole("textbox", { name: label })]);
     if (target) {
+      await target.scrollIntoViewIfNeeded().catch(() => null);
       await target.fill(String(value || ""));
       return true;
     }
@@ -166,7 +167,8 @@ function facebookCategoryCandidates(value) {
   if (lower.includes("electronics") || lower.includes("smart")) return unique(["Electronics & computers", "Household", ...fallback]);
   if (lower.includes("home improvement") || lower.includes("mount") || lower.includes("solar") || lower.includes("strap")) return unique(["Tools", "Household", "Garden", ...fallback]);
   if (lower.includes("home") || lower.includes("mattress") || lower.includes("bedroom")) return unique(["Household", "Furniture", ...fallback]);
-  if (lower.includes("clothing") || lower.includes("costume") || lower.includes("shirt") || lower.includes("cap")) return unique(["Clothing & accessories", "Household", ...fallback]);
+  if (lower.includes("bag") || lower.includes("pouch") || lower.includes("luggage")) return unique(["Bags & Luggage", "Household", ...fallback]);
+  if (lower.includes("clothing") || lower.includes("costume") || lower.includes("shirt") || lower.includes("cap")) return unique(["Men's clothing & shoes", "Women's clothing & shoes", "Baby & kids", "Household", ...fallback]);
   return unique([leaf(value), ...fallback]);
 }
 
@@ -193,24 +195,8 @@ async function chooseDropdownValue(page, triggerPatterns, valuePatterns) {
   return false;
 }
 
-async function clickSuggestedChip(page, valuePatterns) {
-  for (const pattern of valuePatterns) {
-    const candidates = await page.getByText(pattern).all().catch(() => []);
-    for (const candidate of candidates) {
-      const box = await candidate.boundingBox().catch(() => null);
-      if (!box || box.width <= 0 || box.height <= 0) continue;
-      if (box.x > 360 || box.x < 10 || box.y < 250 || box.y > 560 || box.height > 52) continue;
-      await candidate.click({ force: true });
-      await page.waitForTimeout(600);
-      return true;
-    }
-  }
-  return false;
-}
-
 async function chooseCategory(page, value) {
   const patterns = facebookCategoryCandidates(value).map((candidate) => new RegExp(`^${escapeRegExp(candidate)}$`, "i"));
-  if (await clickSuggestedChip(page, patterns)) return true;
   return chooseDropdownValue(page, [/category/i], patterns);
 }
 
@@ -226,6 +212,8 @@ async function clickDropdownField(page, labelPatterns) {
     }
     if (!label) label = await firstVisible([page.getByText(pattern).first()]);
     if (!label) continue;
+    await label.scrollIntoViewIfNeeded().catch(() => null);
+    await page.waitForTimeout(250);
     const box = await label.boundingBox().catch(() => null);
     if (!box) continue;
     await page.mouse.click(box.x + Math.min(285, Math.max(40, box.width + 15)), box.y + Math.max(8, box.height / 2));
@@ -238,6 +226,8 @@ async function clickDropdownOption(page, valuePatterns, minY = 100) {
   for (const pattern of valuePatterns) {
     const target = await visibleMenuCandidate(page, pattern, minY);
     if (!target) continue;
+    await target.scrollIntoViewIfNeeded().catch(() => null);
+    await page.waitForTimeout(250);
     const box = await target.boundingBox().catch(() => null);
     if (box) {
       await page.mouse.click(box.x + Math.min(24, box.width / 2), box.y + box.height / 2);
@@ -251,9 +241,9 @@ async function clickDropdownOption(page, valuePatterns, minY = 100) {
 }
 
 async function visibleMenuCandidate(page, pattern, minY = 100) {
-  const textCandidates = await page.getByText(pattern).all().catch(() => []);
   const roleCandidates = await page.locator('[role="option"], [role="button"], [role="menuitem"]').filter({ hasText: pattern }).all().catch(() => []);
-  const candidates = [...textCandidates, ...roleCandidates];
+  const textCandidates = await page.getByText(pattern).all().catch(() => []);
+  const candidates = [...roleCandidates, ...textCandidates];
   for (const candidate of candidates) {
     const box = await candidate.boundingBox().catch(() => null);
     if (!box || box.width <= 0 || box.height <= 0) continue;
@@ -282,6 +272,7 @@ async function uploadPhotos(page, paths) {
 async function fillListing(page, item) {
   await page.goto("https://www.facebook.com/marketplace/create/item", { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(2500);
+  await page.evaluate(() => window.scrollTo(0, 0)).catch(() => null);
   const photos = await materializePhotos(item);
   const uploaded = await uploadPhotos(page, photos);
   await page.waitForTimeout(1200);
