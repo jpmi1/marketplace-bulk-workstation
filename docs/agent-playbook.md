@@ -4,7 +4,7 @@ This repo is designed for a local-first human review loop. Codex, Claude Code, o
 
 ## Core Rules
 
-- Never store Facebook credentials. Use the user's logged-in browser profile only.
+- Never store Facebook credentials. Use the user's configured browser profile and let the worker pause for browser login when needed.
 - Default to draft-and-confirm. Auto-publish requires both an approved listing and `auto_publish=true` in Settings.
 - Keep original photos untouched. Copy or download posting assets only into managed project output folders.
 - Public listing descriptions must be buyer-facing. Do not include phrases like `storage inventory`, `pipeline`, `notes from sheet`, `photos still need`, or internal review instructions.
@@ -64,7 +64,7 @@ Avoid owner-facing notes, unsupported testing claims, private pricing logic, and
 2. Review every field in the app: title, price, condition, category, quantity, description, location, shipping, weight, notes, photos.
 3. Resolve validation errors.
 4. Approve listings.
-5. Run the browser worker in draft mode.
+5. Run the browser worker in draft mode; it will wait for browser login before filling listings.
 6. Inspect Facebook drafts and publish manually, or enable auto-publish explicitly for approved listings.
 
 ## Playwright Automation Workflow

@@ -69,6 +69,8 @@ Otherwise use draft mode:
 npm run post:drafts
 ```
 
+When the worker launches, it opens Facebook in the configured browser profile and waits for the user to finish any required login before it starts filling listings.
+
 ## Privacy
 
 Do not commit local projects, uploaded photos, browser profiles, posting screenshots, SQLite databases, or private inventory exports.

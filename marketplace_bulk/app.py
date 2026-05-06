@@ -7,7 +7,7 @@ import json
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,14 +19,21 @@ from .storage import (
     DEFAULT_DB_PATH,
     ROOT,
     approve_listing,
+    btc_entries_csv,
+    btc_entries_xlsx,
+    btc_progress_summary,
+    create_btc_entry,
     delete_listing,
     delete_listings,
+    delete_btc_entry,
     export_posting_queue,
     get_listing,
     get_settings,
     init_db,
+    list_btc_entries,
     list_listings,
     list_logs,
+    patch_btc_entry,
     patch_listing,
     patch_photo,
     update_settings,
@@ -39,7 +46,7 @@ class PatchBody(BaseModel):
 
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     init_db(db_path)
-    app = FastAPI(title="Marketplace Bulk Listing Workstation", version=__version__)
+    app = FastAPI(title="Sell to 1 BTC", version=__version__)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -169,6 +176,54 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     @app.get("/api/logs")
     def logs(limit: int = 100) -> list[dict[str, Any]]:
         return list_logs(limit=limit, db_path=db_path)
+
+    @app.get("/api/btc-progress")
+    def btc_progress_entries() -> list[dict[str, Any]]:
+        return list_btc_entries(db_path)
+
+    @app.post("/api/btc-progress")
+    def btc_progress_create(body: PatchBody) -> dict[str, Any]:
+        return create_btc_entry(body.data, db_path)
+
+    @app.get("/api/btc-progress/summary")
+    def btc_progress_summary_get() -> dict[str, Any]:
+        return btc_progress_summary(db_path)
+
+    @app.get("/api/kraken-referral")
+    def kraken_referral() -> RedirectResponse:
+        url = str(get_settings(db_path).get("kraken_referral_url") or "").strip()
+        if not url:
+            raise HTTPException(status_code=404, detail="Kraken referral URL is not configured")
+        return RedirectResponse(url=url)
+
+    @app.get("/api/btc-progress/export.csv")
+    def btc_progress_csv_export() -> Response:
+        return Response(
+            content=btc_entries_csv(db_path),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="sell-to-1btc-progress.csv"'},
+        )
+
+    @app.get("/api/btc-progress/export.xlsx")
+    def btc_progress_xlsx_export() -> Response:
+        return Response(
+            content=btc_entries_xlsx(db_path),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="sell-to-1btc-progress.xlsx"'},
+        )
+
+    @app.patch("/api/btc-progress/{entry_id}")
+    def btc_progress_patch(entry_id: int, body: PatchBody) -> dict[str, Any]:
+        try:
+            return patch_btc_entry(entry_id, body.data, db_path)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="BTC progress entry not found") from None
+
+    @app.delete("/api/btc-progress/{entry_id}")
+    def btc_progress_delete(entry_id: int) -> dict[str, Any]:
+        if not delete_btc_entry(entry_id, db_path):
+            raise HTTPException(status_code=404, detail="BTC progress entry not found")
+        return {"deleted": [entry_id]}
 
     frontend_dist = ROOT / "app" / "frontend" / "dist"
     if frontend_dist.exists():

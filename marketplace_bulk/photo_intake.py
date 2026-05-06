@@ -15,7 +15,9 @@ from .storage import DEFAULT_DB_PATH, DEFAULT_PROJECT_DIR, add_log, get_settings
 UPLOAD_ROOT = DEFAULT_PROJECT_DIR / "uploads"
 BATCH_ROOT = DEFAULT_PROJECT_DIR / "intake-batches"
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
-GROUP_GAP_MS = 7 * 60 * 1000
+GROUP_GAP_MS = 25 * 1000
+CAMERA_SEQUENCE_GAP = 3
+MAX_AUTO_GROUP_PHOTOS = 8
 
 
 def safe_name(value: str) -> str:
@@ -99,21 +101,41 @@ async def create_photo_batch(files: list[UploadFile], metadata: list[dict[str, A
 
 
 def group_photos(photos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    sortable = sorted(photos, key=lambda photo: (photo.get("last_modified") or 0, photo.get("name") or ""))
     groups: list[dict[str, Any]] = []
     current: list[dict[str, Any]] = []
-    previous_time: int | None = None
-    for photo in sortable:
-        timestamp = int(photo.get("last_modified") or 0)
-        starts_new = bool(current) and timestamp and previous_time and timestamp - previous_time > GROUP_GAP_MS
+    previous: dict[str, Any] | None = None
+    for photo in photos:
+        starts_new = bool(current) and should_start_new_group(previous, photo, len(current))
         if starts_new:
             groups.append(group_from_photos(len(groups) + 1, current))
             current = []
         current.append(photo)
-        previous_time = timestamp or previous_time
+        previous = photo
     if current:
         groups.append(group_from_photos(len(groups) + 1, current))
     return groups
+
+
+def should_start_new_group(previous: dict[str, Any] | None, photo: dict[str, Any], current_count: int) -> bool:
+    if not previous:
+        return False
+
+    previous_time = int(previous.get("last_modified") or 0)
+    timestamp = int(photo.get("last_modified") or 0)
+    if previous_time and timestamp and abs(timestamp - previous_time) > GROUP_GAP_MS:
+        return True
+
+    previous_sequence = camera_sequence(previous.get("name") or "")
+    sequence = camera_sequence(photo.get("name") or "")
+    if previous_sequence is not None and sequence is not None and abs(sequence - previous_sequence) > CAMERA_SEQUENCE_GAP and current_count >= 2:
+        return True
+
+    return current_count >= MAX_AUTO_GROUP_PHOTOS
+
+
+def camera_sequence(name: str) -> int | None:
+    match = re.search(r"(?:IMG_|DSC_|PXL_)?(\d{3,})(?=\D*$)", Path(name).stem, flags=re.IGNORECASE)
+    return int(match.group(1)) if match else None
 
 
 def group_from_photos(index: int, photos: list[dict[str, Any]]) -> dict[str, Any]:

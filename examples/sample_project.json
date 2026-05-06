@@ -1,10 +1,15 @@
 {
   "settings": {
-    "project_name": "Generic Demo Marketplace Project",
+    "project_name": "Sell to 1 BTC Demo Project",
     "location": "Your City, ST ZIP",
     "image_research_enabled": false,
     "comp_research_enabled": false,
-    "auto_publish": false
+    "auto_publish": false,
+    "btc_goal_amount": 1,
+    "btc_owned": 0,
+    "manual_btc_usd_price": 100000,
+    "kraken_referral_url": "",
+    "google_sheet_url": ""
   },
   "listings": [
     {
@@ -26,6 +31,17 @@
       "quantity_text": "1 unit available",
       "description": "Selling a generic game controller.\n\nCondition: Used - Fair.\n\nLocal pickup available. Shipping available through Facebook when supported; buyer pays shipping.",
       "photos": []
+    }
+  ],
+  "btc_progress_entries": [
+    {
+      "entry_type": "sale_proceeds",
+      "title": "Generic desk lamp sale",
+      "amount_usd": 18,
+      "btc_amount": 0,
+      "btc_price_usd": 100000,
+      "listing_id": "demo-001",
+      "notes": "Example proceeds entry only."
     }
   ]
 }

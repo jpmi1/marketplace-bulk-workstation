@@ -1,23 +1,29 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertCircle,
+  Bitcoin,
   Bot,
   Check,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   Copy,
+  Download,
+  ExternalLink,
   FileText,
   Github,
   ImageOff,
   Images,
   LayoutDashboard,
+  Plus,
   RefreshCw,
   Search,
   Settings,
   ShipWheel,
+  Target,
   Trash2,
+  TrendingUp,
   Upload,
   UploadCloud,
 } from "lucide-react";
@@ -74,9 +80,48 @@ type AppSettings = {
   comp_research_enabled: boolean;
   reference_image_policy: string;
   description_tone: string;
+  btc_goal_amount: number;
+  btc_owned: number;
+  manual_btc_usd_price: number;
+  kraken_referral_url: string;
+  google_sheet_url: string;
+  progress_currency: string;
   forbidden_public_phrases: string[];
 };
 type LogRow = { id: number; listing_id: string | null; level: string; message: string; created_at: string };
+type BtcEntry = {
+  id: number;
+  entry_type: string;
+  title: string;
+  amount_usd: number;
+  btc_amount: number;
+  btc_price_usd: number | null;
+  listing_id: string | null;
+  notes: string;
+  entry_date: string;
+  created_at: string;
+  updated_at: string;
+};
+type BtcSummary = {
+  goal_btc: number;
+  starting_btc_owned: number;
+  ledger_btc: number;
+  total_btc_owned: number;
+  manual_btc_usd_price: number;
+  gross_proceeds_usd: number;
+  spent_on_btc_usd: number;
+  available_usd: number;
+  estimated_purchasable_btc: number;
+  projected_btc: number;
+  remaining_btc: number;
+  remaining_usd: number | null;
+  progress_percent: number;
+  entry_count: number;
+  currency: string;
+  google_sheet_url: string;
+  kraken_referral_url: string;
+  recent_entries: BtcEntry[];
+};
 type IntakePhoto = {
   id: string;
   name: string;
@@ -104,7 +149,10 @@ type IntakeBatch = {
 };
 
 const conditions = ["New", "Used - Like New", "Used - Good", "Used - Fair"];
+const btcEntryTypes = ["sale_proceeds", "cash_set_aside", "btc_purchase", "referral_bonus", "adjustment"];
 const repoUrl = "https://github.com/jpmi1/marketplace-bulk-workstation";
+const formatUsd = (value?: number | null) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value || 0);
+const formatBtc = (value?: number | null) => `${(value || 0).toFixed(8)} BTC`;
 const photoSrc = (photo?: Photo) => {
   if (!photo) return "";
   return photo.path ? `/api/assets/photos/${encodeURIComponent(photo.id)}` : photo.uri;
@@ -118,6 +166,22 @@ const api = {
   },
   async getLogs(): Promise<LogRow[]> {
     return fetch("/api/logs").then((res) => res.json());
+  },
+  async getBtcEntries(): Promise<BtcEntry[]> {
+    return fetch("/api/btc-progress").then((res) => res.json());
+  },
+  async getBtcSummary(): Promise<BtcSummary> {
+    return fetch("/api/btc-progress/summary").then((res) => res.json());
+  },
+  async createBtcEntry(data: Partial<BtcEntry>): Promise<BtcEntry> {
+    return fetch("/api/btc-progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data }),
+    }).then((res) => res.json());
+  },
+  async deleteBtcEntry(id: number): Promise<{ deleted: number[] }> {
+    return fetch(`/api/btc-progress/${encodeURIComponent(id)}`, { method: "DELETE" }).then((res) => res.json());
   },
   async importExisting(): Promise<Record<string, number>> {
     return fetch("/api/intake/existing-outputs", { method: "POST" }).then((res) => res.json());
@@ -177,10 +241,12 @@ const api = {
 };
 
 function App() {
-  const [view, setView] = useState<"intake" | "review" | "agents" | "posting" | "settings" | "logs">("intake");
+  const [view, setView] = useState<"intake" | "review" | "btc" | "agents" | "posting" | "settings" | "logs">("intake");
   const [listings, setListings] = useState<Listing[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [logs, setLogs] = useState<LogRow[]>([]);
+  const [btcEntries, setBtcEntries] = useState<BtcEntry[]>([]);
+  const [btcSummary, setBtcSummary] = useState<BtcSummary | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -189,10 +255,12 @@ function App() {
   const [toast, setToast] = useState("");
 
   async function loadAll() {
-    const [nextListings, nextSettings, nextLogs] = await Promise.all([api.getListings(), api.getSettings(), api.getLogs()]);
+    const [nextListings, nextSettings, nextLogs, nextBtcEntries, nextBtcSummary] = await Promise.all([api.getListings(), api.getSettings(), api.getLogs(), api.getBtcEntries(), api.getBtcSummary()]);
     setListings(nextListings);
     setSettings(nextSettings);
     setLogs(nextLogs);
+    setBtcEntries(nextBtcEntries);
+    setBtcSummary(nextBtcSummary);
     setSelectedId((current) => current || nextListings[0]?.id || "");
   }
 
@@ -269,19 +337,57 @@ function App() {
     window.setTimeout(() => setToast(""), 2500);
   }
 
+  async function createBtcEntry(data: Partial<BtcEntry>) {
+    setSaving(true);
+    await api.createBtcEntry(data);
+    const [nextEntries, nextSummary] = await Promise.all([api.getBtcEntries(), api.getBtcSummary()]);
+    setBtcEntries(nextEntries);
+    setBtcSummary(nextSummary);
+    setSaving(false);
+    setToast("BTC progress updated");
+    window.setTimeout(() => setToast(""), 2200);
+  }
+
+  async function deleteBtcEntry(id: number) {
+    if (!window.confirm("Delete this BTC progress entry?")) return;
+    setSaving(true);
+    await api.deleteBtcEntry(id);
+    const [nextEntries, nextSummary] = await Promise.all([api.getBtcEntries(), api.getBtcSummary()]);
+    setBtcEntries(nextEntries);
+    setBtcSummary(nextSummary);
+    setSaving(false);
+    setToast("BTC progress entry deleted");
+    window.setTimeout(() => setToast(""), 2200);
+  }
+
+  async function addListingProceeds(listing: Listing) {
+    await createBtcEntry({
+      entry_type: "sale_proceeds",
+      title: listing.title || "Marketplace sale proceeds",
+      amount_usd: listing.price || 0,
+      btc_amount: 0,
+      btc_price_usd: settings?.manual_btc_usd_price || null,
+      listing_id: listing.id,
+      notes: "Added from listing review.",
+      entry_date: new Date().toISOString().slice(0, 10),
+    });
+    setView("btc");
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">M</div>
+          <div className="brand-mark">BTC</div>
           <div>
-            <strong>Marketplace</strong>
-            <span>Bulk workstation</span>
+            <strong>Sell to 1 BTC</strong>
+            <span>Used stuff tracker</span>
           </div>
         </div>
         <nav aria-label="Main navigation">
           <NavButton icon={<UploadCloud />} label="Intake" active={view === "intake"} onClick={() => setView("intake")} />
           <NavButton icon={<LayoutDashboard />} label="Review" active={view === "review"} onClick={() => setView("review")} />
+          <NavButton icon={<Bitcoin />} label="BTC Goal" active={view === "btc"} onClick={() => setView("btc")} />
           <NavButton icon={<Bot />} label="Agent Setup" active={view === "agents"} onClick={() => setView("agents")} />
           <NavButton icon={<ShipWheel />} label="Posting Queue" active={view === "posting"} onClick={() => setView("posting")} />
           <NavButton icon={<ClipboardList />} label="Run Log" active={view === "logs"} onClick={() => setView("logs")} />
@@ -294,8 +400,8 @@ function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <h1>{settings?.project_name || "Marketplace Bulk Workstation"}</h1>
-            <p>{listings.length} listings · {listings.filter((row) => row.approved).length} approved · {saving ? "Saving" : "Saved"}</p>
+            <h1>{settings?.project_name || "Sell to 1 BTC"}</h1>
+            <p>Turn used stuff into Bitcoin progress · {listings.length} listings · {listings.filter((row) => row.approved).length} approved · {saving ? "Saving" : "Saved"}</p>
           </div>
           <div className="topbar-actions">
             {toast && <span className="toast">{toast}</span>}
@@ -333,6 +439,22 @@ function App() {
             onPatch={mutateListing}
             onPatchPhoto={mutatePhoto}
             onApprove={approve}
+            onAddProceeds={addListingProceeds}
+          />
+        )}
+        {view === "btc" && settings && btcSummary && (
+          <BtcGoalView
+            settings={settings}
+            summary={btcSummary}
+            entries={btcEntries}
+            listings={listings}
+            onCreate={createBtcEntry}
+            onDelete={deleteBtcEntry}
+            onSaveSettings={async (data) => {
+              const next = await api.patchSettings(data);
+              setSettings(next);
+              setBtcSummary(await api.getBtcSummary());
+            }}
           />
         )}
         {view === "agents" && <AgentSetupView settings={settings} selectedIds={handoffIds} listings={listings} />}
@@ -353,8 +475,213 @@ function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; la
   );
 }
 
+function BtcGoalView({
+  settings,
+  summary,
+  entries,
+  listings,
+  onCreate,
+  onDelete,
+  onSaveSettings,
+}: {
+  settings: AppSettings;
+  summary: BtcSummary;
+  entries: BtcEntry[];
+  listings: Listing[];
+  onCreate: (data: Partial<BtcEntry>) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+  onSaveSettings: (data: Partial<AppSettings>) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<Partial<BtcEntry>>({
+    entry_type: "sale_proceeds",
+    title: "",
+    amount_usd: 0,
+    btc_amount: 0,
+    btc_price_usd: settings.manual_btc_usd_price,
+    listing_id: "",
+    notes: "",
+    entry_date: new Date().toISOString().slice(0, 10),
+  });
+  const [goalDraft, setGoalDraft] = useState({
+    btc_goal_amount: settings.btc_goal_amount,
+    btc_owned: settings.btc_owned,
+    manual_btc_usd_price: settings.manual_btc_usd_price,
+    google_sheet_url: settings.google_sheet_url,
+    kraken_referral_url: settings.kraken_referral_url,
+  });
+
+  useEffect(() => {
+    setGoalDraft({
+      btc_goal_amount: settings.btc_goal_amount,
+      btc_owned: settings.btc_owned,
+      manual_btc_usd_price: settings.manual_btc_usd_price,
+      google_sheet_url: settings.google_sheet_url,
+      kraken_referral_url: settings.kraken_referral_url,
+    });
+  }, [settings]);
+
+  async function submitEntry(event: React.FormEvent) {
+    event.preventDefault();
+    await onCreate({
+      ...draft,
+      title: draft.title || String(draft.entry_type || "Progress entry").replace(/_/g, " "),
+      amount_usd: Number(draft.amount_usd || 0),
+      btc_amount: Number(draft.btc_amount || 0),
+      btc_price_usd: draft.btc_price_usd ? Number(draft.btc_price_usd) : settings.manual_btc_usd_price,
+      listing_id: draft.listing_id || null,
+    });
+    setDraft({
+      entry_type: "sale_proceeds",
+      title: "",
+      amount_usd: 0,
+      btc_amount: 0,
+      btc_price_usd: settings.manual_btc_usd_price,
+      listing_id: "",
+      notes: "",
+      entry_date: new Date().toISOString().slice(0, 10),
+    });
+  }
+
+  return (
+    <section className="btc-layout">
+      <div className="btc-hero">
+        <div>
+          <span className="eyebrow">Sell to 1 BTC</span>
+          <h2>Turn used stuff into Bitcoin progress</h2>
+          <p>Track proceeds, BTC buys, and manual progress locally. Export the ledger when you want to move it into Google Sheets.</p>
+        </div>
+        <div className="btc-progress-ring" aria-label={`${summary.progress_percent.toFixed(1)} percent toward goal`}>
+          <strong>{summary.progress_percent.toFixed(1)}%</strong>
+          <span>{formatBtc(summary.projected_btc)}</span>
+        </div>
+      </div>
+
+      <div className="btc-stat-grid">
+        <MetricCard icon={<Target />} label="Goal" value={formatBtc(summary.goal_btc)} detail={`${formatBtc(summary.remaining_btc)} remaining`} />
+        <MetricCard icon={<Bitcoin />} label="BTC owned" value={formatBtc(summary.total_btc_owned)} detail={`${formatBtc(summary.ledger_btc)} from ledger`} />
+        <MetricCard icon={<TrendingUp />} label="Cash set aside" value={formatUsd(summary.available_usd)} detail={`${formatBtc(summary.estimated_purchasable_btc)} est. purchasable`} />
+        <MetricCard icon={<Download />} label="Remaining estimate" value={summary.remaining_usd == null ? "Set BTC price" : formatUsd(summary.remaining_usd)} detail={`${formatUsd(summary.manual_btc_usd_price)} manual BTC price`} />
+      </div>
+
+      <div className="progress-track" aria-label="BTC goal progress">
+        <span style={{ width: `${Math.min(Math.max(summary.progress_percent, 0), 100)}%` }} />
+      </div>
+
+      <div className="btc-columns">
+        <form className="page-section btc-entry-form" onSubmit={submitEntry}>
+          <div className="section-header">
+            <div>
+              <h2>Add progress</h2>
+              <p>Manual entries only. This does not buy, sell, or move Bitcoin.</p>
+            </div>
+            <Bitcoin size={24} />
+          </div>
+          <div className="form-grid">
+            <Field label="Type">
+              <select value={draft.entry_type} onChange={(event) => setDraft({ ...draft, entry_type: event.target.value })}>
+                {btcEntryTypes.map((type) => <option key={type} value={type}>{type.replace(/_/g, " ")}</option>)}
+              </select>
+            </Field>
+            <Field label="Date">
+              <input type="date" value={draft.entry_date || ""} onChange={(event) => setDraft({ ...draft, entry_date: event.target.value })} />
+            </Field>
+            <Field label="Title" wide>
+              <input value={draft.title || ""} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Marketplace sale, BTC buy, referral bonus..." />
+            </Field>
+            <Field label="Amount USD">
+              <input type="number" step="0.01" value={draft.amount_usd ?? 0} onChange={(event) => setDraft({ ...draft, amount_usd: Number(event.target.value) })} />
+            </Field>
+            <Field label="BTC amount">
+              <input type="number" step="0.00000001" value={draft.btc_amount ?? 0} onChange={(event) => setDraft({ ...draft, btc_amount: Number(event.target.value) })} />
+            </Field>
+            <Field label="BTC price">
+              <input type="number" step="1" value={draft.btc_price_usd ?? ""} onChange={(event) => setDraft({ ...draft, btc_price_usd: event.target.value ? Number(event.target.value) : null })} />
+            </Field>
+            <Field label="Linked listing">
+              <select value={draft.listing_id || ""} onChange={(event) => setDraft({ ...draft, listing_id: event.target.value })}>
+                <option value="">None</option>
+                {listings.map((listing) => <option key={listing.id} value={listing.id}>{listing.title || listing.id}</option>)}
+              </select>
+            </Field>
+            <Field label="Notes" wide>
+              <textarea className="notes" value={draft.notes || ""} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
+            </Field>
+          </div>
+          <button className="primary" type="submit"><Plus size={16} /> Add entry</button>
+        </form>
+
+        <div className="page-section btc-tools">
+          <div className="section-header">
+            <div>
+              <h2>Goal settings</h2>
+              <p>Saved on device. Export when you want this in Google Sheets.</p>
+            </div>
+            <button className="secondary compact" onClick={() => onSaveSettings(goalDraft)}>Save</button>
+          </div>
+          <div className="form-grid">
+            <Field label="Goal BTC"><input type="number" step="0.00000001" value={goalDraft.btc_goal_amount} onChange={(event) => setGoalDraft({ ...goalDraft, btc_goal_amount: Number(event.target.value) })} /></Field>
+            <Field label="Current BTC"><input type="number" step="0.00000001" value={goalDraft.btc_owned} onChange={(event) => setGoalDraft({ ...goalDraft, btc_owned: Number(event.target.value) })} /></Field>
+            <Field label="Manual BTC/USD"><input type="number" step="1" value={goalDraft.manual_btc_usd_price} onChange={(event) => setGoalDraft({ ...goalDraft, manual_btc_usd_price: Number(event.target.value) })} /></Field>
+            <Field label="Google Sheet URL" wide><input value={goalDraft.google_sheet_url || ""} onChange={(event) => setGoalDraft({ ...goalDraft, google_sheet_url: event.target.value })} /></Field>
+            <Field label="Kraken referral URL" wide><input type="password" autoComplete="off" value={goalDraft.kraken_referral_url || ""} onChange={(event) => setGoalDraft({ ...goalDraft, kraken_referral_url: event.target.value })} /></Field>
+          </div>
+          <div className="export-row">
+            <a className="secondary link-button" href="/api/btc-progress/export.csv"><Download size={16} /> CSV</a>
+            <a className="secondary link-button" href="/api/btc-progress/export.xlsx"><Download size={16} /> XLSX</a>
+            {goalDraft.google_sheet_url && <a className="secondary link-button" href={goalDraft.google_sheet_url} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Sheet</a>}
+          </div>
+          <div className="kraken-card">
+            <h3>New to Bitcoin?</h3>
+            <p>Kraken can be used to create an account and buy Bitcoin. Referral eligibility, bonus amounts, deposit requirements, and trading terms vary by offer and location.</p>
+            <div className="export-row">
+              {(goalDraft.kraken_referral_url || settings.kraken_referral_url) && (
+                <a className="kraken-button link-button" href="/api/kraken-referral" target="_blank" rel="noreferrer">
+                  <Bitcoin size={16} /> Bitcoin on Kraken
+                </a>
+              )}
+              <a className="secondary link-button" href="https://support.kraken.com/articles/kraken-app-referral-program" target="_blank" rel="noreferrer"><ExternalLink size={16} /> Terms context</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="page-section">
+        <div className="section-header">
+          <div>
+            <h2>Progress ledger</h2>
+            <p>{entries.length} manual entr{entries.length === 1 ? "y" : "ies"} saved locally.</p>
+          </div>
+        </div>
+        <div className="table btc-ledger">
+          {entries.map((entry) => (
+            <div className="table-row" key={entry.id}>
+              <strong>{entry.title}</strong>
+              <span>{entry.entry_type.replace(/_/g, " ")}</span>
+              <span>{entry.entry_date}</span>
+              <span>{formatUsd(entry.amount_usd)}</span>
+              <span>{formatBtc(entry.btc_amount)}</span>
+              <button className="danger-action compact" onClick={() => onDelete(entry.id)}><Trash2 size={14} /> Delete</button>
+            </div>
+          ))}
+          {!entries.length && <EmptyState title="No BTC entries yet" action="Add sale proceeds or a BTC purchase to start tracking." />}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MetricCard({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: string; detail: string }) {
+  return (
+    <div className="metric-card">
+      <div>{icon}</div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
 function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings; onUploaded: (message: string) => void; onCommit: (batchId: string, groups: IntakeGroup[]) => Promise<void> }) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [batch, setBatch] = useState<IntakeBatch | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -414,6 +741,29 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
     setGroups(groups);
   }
 
+  function splitGroupAt(groupId: string, photoId: string) {
+    const groups = (batch?.groups || []).map((group) => ({ ...group, photo_ids: [...group.photo_ids], removed_photo_ids: [...group.removed_photo_ids] }));
+    const index = groups.findIndex((group) => group.id === groupId);
+    const group = groups[index];
+    if (!group) return;
+    const splitIndex = group.photo_ids.indexOf(photoId);
+    if (splitIndex <= 0) return;
+    const splitIds = group.photo_ids.slice(splitIndex);
+    group.photo_ids = group.photo_ids.slice(0, splitIndex);
+    const splitRemoved = new Set(group.removed_photo_ids.filter((id) => splitIds.includes(id)));
+    group.removed_photo_ids = group.removed_photo_ids.filter((id) => group.photo_ids.includes(id));
+    group.cover_photo_id = group.photo_ids.includes(group.cover_photo_id) ? group.cover_photo_id : group.photo_ids.find((id) => !group.removed_photo_ids.includes(id)) || group.photo_ids[0] || "";
+    const nextGroup: IntakeGroup = {
+      id: `group-${Date.now()}`,
+      title: `Photo group ${groups.length + 1}`,
+      photo_ids: splitIds,
+      removed_photo_ids: [...splitRemoved],
+      cover_photo_id: splitIds.includes(group.cover_photo_id) ? group.cover_photo_id : splitIds.find((id) => !splitRemoved.has(id)) || splitIds[0] || "",
+    };
+    groups.splice(index + 1, 0, nextGroup);
+    setGroups(groups);
+  }
+
   function mergeGroup(index: number) {
     const groups = [...(batch?.groups || [])];
     if (index <= 0) return;
@@ -467,19 +817,20 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
           <UploadCloud size={30} />
           <strong>{uploading ? "Uploading photos..." : "Drag photos here"}</strong>
           <span>or choose JPG, PNG, HEIC, HEIF, or WebP files</span>
-          <button type="button" className="primary" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+          <label className={`primary file-trigger ${uploading ? "disabled" : ""}`} aria-disabled={uploading}>
             <Upload size={16} /> Choose photos
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,.heic,.heif"
-            multiple
-            onChange={(event) => {
-              if (event.target.files) uploadFiles(event.target.files);
-              event.currentTarget.value = "";
-            }}
-          />
+            <input
+              className="file-input"
+              type="file"
+              accept="image/*,.heic,.heif"
+              multiple
+              disabled={uploading}
+              onChange={(event) => {
+                if (event.target.files) uploadFiles(event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
         </div>
       </div>
 
@@ -516,6 +867,7 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
                           <strong>{photo.name}</strong>
                           <div className="thumb-actions">
                             <button onClick={() => toggleRemoved(group, photoId)}>{removed ? "Restore" : "Remove"}</button>
+                            <button disabled={group.photo_ids.indexOf(photoId) === 0} onClick={() => splitGroupAt(group.id, photoId)}>Split</button>
                             <button onClick={() => movePhotoToNewGroup(photoId, group.id)}>New group</button>
                           </div>
                           {batch.groups.length > 1 && (
@@ -557,7 +909,7 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
 
   function prompt(kind: "research" | "descriptions" | "post") {
     if (kind === "post") {
-      return `You are working in ${repoUrl}. Use the local Marketplace Bulk Workstation at http://127.0.0.1:8766. Post only these approved listing IDs: ${idText}. Use scripts/facebook_marketplace_worker.js with --ids for the selected listings. Keep auto-publish off unless I explicitly enable it in Settings and ask for --publish-approved. Take screenshots on failure and update posting_status through the app.`;
+      return `You are working in ${repoUrl}. Use the local Sell to 1 BTC app at http://127.0.0.1:8766. Post only these approved listing IDs: ${idText}. Use scripts/facebook_marketplace_worker.js with --ids for the selected listings; it opens Facebook and waits for the user to finish browser login before posting. Keep auto-publish off unless I explicitly enable it in Settings and ask for --publish-approved. Take screenshots on failure and update posting_status through the app.`;
     }
     if (kind === "descriptions") {
       return `You are working in ${repoUrl}. Use the local app API at http://127.0.0.1:8766. Improve buyer-facing descriptions for these listing IDs: ${idText}. Do not include internal notes, pipeline language, or research notes in public descriptions. Save uncertainty in private_notes and patch results back through /api/listings/{id}. Current gates: ${gates}.`;
@@ -599,7 +951,7 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
         />
         <SetupCard
           title="Verify posting access"
-          body="Keep Facebook credentials in the browser only. Use the worker profile to login, then run draft mode first."
+          body="Keep Facebook credentials in the browser only. The worker will pause for browser login, then run draft mode first."
           command={`npm run post:drafts\nnode scripts/facebook_marketplace_worker.js --ids ${selectedIds[0] || "example-001"}`}
           onCopy={(text) => copy("posting check", text)}
         />
@@ -622,7 +974,7 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
           <span><Check size={15} /> Local app reachable at 127.0.0.1:8766</span>
           <span className={settings?.comp_research_enabled ? "ready" : ""}><Search size={15} /> Comp research {settings?.comp_research_enabled ? "enabled" : "off"}</span>
           <span className={settings?.image_research_enabled ? "ready" : ""}><Images size={15} /> Image research {settings?.image_research_enabled ? "enabled" : "off"}</span>
-          <span><ShipWheel size={15} /> Facebook login verified in browser profile before posting</span>
+          <span><ShipWheel size={15} /> Worker pauses for Facebook browser login before posting</span>
         </div>
       </div>
       {selectedListings.length > 0 && (
@@ -685,6 +1037,7 @@ function ReviewView(props: {
   onPatch: (id: string, data: Partial<Listing>) => Promise<void>;
   onPatchPhoto: (listingId: string, photoId: string, data: Partial<Photo>) => Promise<void>;
   onApprove: (id: string, approved: boolean) => Promise<void>;
+  onAddProceeds: (listing: Listing) => Promise<void>;
 }) {
   const canDelete = props.statusFilter === "all" || props.statusFilter === "needs_review";
   const visibleIds = props.listings.map((listing) => listing.id);
@@ -750,7 +1103,7 @@ function ReviewView(props: {
       {props.selected ? (
         <>
           <PhotoWorkbench listing={props.selected} onPatchPhoto={props.onPatchPhoto} />
-          <ListingEditor listing={props.selected} onPatch={props.onPatch} onApprove={props.onApprove} />
+          <ListingEditor listing={props.selected} onPatch={props.onPatch} onApprove={props.onApprove} onAddProceeds={props.onAddProceeds} />
         </>
       ) : (
         <div className="empty-wide">
@@ -824,7 +1177,7 @@ function PhotoWorkbench({ listing, onPatchPhoto }: { listing: Listing; onPatchPh
   );
 }
 
-function ListingEditor({ listing, onPatch, onApprove }: { listing: Listing; onPatch: (id: string, data: Partial<Listing>) => Promise<void>; onApprove: (id: string, approved: boolean) => Promise<void> }) {
+function ListingEditor({ listing, onPatch, onApprove, onAddProceeds }: { listing: Listing; onPatch: (id: string, data: Partial<Listing>) => Promise<void>; onApprove: (id: string, approved: boolean) => Promise<void>; onAddProceeds: (listing: Listing) => Promise<void> }) {
   const [draft, setDraft] = useState(listing);
   useEffect(() => setDraft(listing), [listing]);
 
@@ -882,6 +1235,7 @@ function ListingEditor({ listing, onPatch, onApprove }: { listing: Listing; onPa
       <div className="approval-actions">
         <button className="primary" onClick={() => onApprove(listing.id, true)}><Check size={16} /> Approve</button>
         <button className="secondary" onClick={() => onApprove(listing.id, false)}>Unapprove</button>
+        <button className="secondary" disabled={!listing.price} onClick={() => onAddProceeds(listing)}><Bitcoin size={16} /> Add proceeds to BTC Goal</button>
         <label className="reference-toggle">
           <input type="checkbox" checked={draft.reference_only_approved} onChange={(event) => onPatch(listing.id, { reference_only_approved: event.target.checked })} />
           Allow reference-only photos
@@ -976,6 +1330,12 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (da
           <Field label="Batch size"><input type="number" min="1" max="50" value={draft.batch_size} onChange={(event) => setDraft({ ...draft, batch_size: Number(event.target.value) })} /></Field>
           <Field label="Default package weight"><input type="number" min="0" value={draft.default_package_weight_oz ?? ""} onChange={(event) => setDraft({ ...draft, default_package_weight_oz: event.target.value ? Number(event.target.value) : null })} /></Field>
           <Field label="Facebook browser profile" wide><input value={draft.facebook_profile_path} onChange={(event) => setDraft({ ...draft, facebook_profile_path: event.target.value })} /></Field>
+          <Field label="BTC goal"><input type="number" step="0.00000001" value={draft.btc_goal_amount} onChange={(event) => setDraft({ ...draft, btc_goal_amount: Number(event.target.value) })} /></Field>
+          <Field label="Current BTC owned"><input type="number" step="0.00000001" value={draft.btc_owned} onChange={(event) => setDraft({ ...draft, btc_owned: Number(event.target.value) })} /></Field>
+          <Field label="Manual BTC/USD price"><input type="number" min="0" value={draft.manual_btc_usd_price} onChange={(event) => setDraft({ ...draft, manual_btc_usd_price: Number(event.target.value) })} /></Field>
+          <Field label="Progress currency"><input value={draft.progress_currency} onChange={(event) => setDraft({ ...draft, progress_currency: event.target.value })} /></Field>
+          <Field label="Kraken referral URL" wide><input type="password" autoComplete="off" value={draft.kraken_referral_url} onChange={(event) => setDraft({ ...draft, kraken_referral_url: event.target.value })} /></Field>
+          <Field label="Google Sheet URL" wide><input value={draft.google_sheet_url} onChange={(event) => setDraft({ ...draft, google_sheet_url: event.target.value })} /></Field>
           <Field label="Forbidden public phrases" wide>
             <textarea className="notes" value={draft.forbidden_public_phrases.join("\n")} onChange={(event) => setDraft({ ...draft, forbidden_public_phrases: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean) })} />
           </Field>

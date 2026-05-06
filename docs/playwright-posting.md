@@ -4,7 +4,7 @@ This guide is for Codex, Claude Code, and other local agents operating this repo
 
 ## Safety Model
 
-The worker uses Playwright with a persistent local browser profile. Facebook login happens in the browser, by the user. The repo never stores credentials.
+The worker uses Playwright with a persistent local browser profile. On launch it opens Facebook and pauses before posting until the user finishes any required login in that browser window. The repo never stores credentials.
 
 Default behavior is to fill a draft and stop. Final publishing requires two gates:
 
@@ -30,7 +30,7 @@ npm run app
    - Public description with no internal notes
    - At least one non-removed usable photo
    - Shipping enabled only when package weight is known or a safe default exists
-4. Confirm the user is logged into Facebook in the configured browser profile.
+4. Be ready to log into Facebook in the browser window opened by the worker if the configured profile is new or signed out.
 
 ## Draft Mode
 
@@ -44,6 +44,8 @@ node scripts/facebook_marketplace_worker.js --limit 5
 ```
 
 The worker reads `/api/posting-queue`, filters to approved and valid listings, uploads photos in saved order, fills fields, takes screenshots, and stores results under `projects/default/posting-runs/`.
+
+At startup, the worker first opens `https://www.facebook.com/marketplace` and waits for the login screen to clear. Posting begins only after the browser session appears ready.
 
 ## Auto-Publish Mode
 

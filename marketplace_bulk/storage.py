@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from io import BytesIO, StringIO
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 from .validation import sanitize_public_description, validate_listing
 
@@ -15,7 +19,7 @@ DEFAULT_DB_PATH = DEFAULT_PROJECT_DIR / "marketplace.db"
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "project_name": "Marketplace Bulk Listing Workstation",
+    "project_name": "Sell to 1 BTC",
     "location": "Your City, ST ZIP",
     "default_condition": "Used - Good",
     "default_payment_terms": "Cash, Venmo, or Zelle accepted.",
@@ -31,6 +35,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "comp_research_enabled": False,
     "reference_image_policy": "review_required",
     "description_tone": "concise_buyer_facing",
+    "btc_goal_amount": 1.0,
+    "btc_owned": 0.0,
+    "manual_btc_usd_price": 100000,
+    "kraken_referral_url": "",
+    "google_sheet_url": "",
+    "progress_currency": "USD",
     "forbidden_public_phrases": [
         "storage inventory",
         "internal",
@@ -117,12 +127,28 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
               details_json text not null default '{}',
               created_at text not null
             );
+            create table if not exists btc_progress_entries (
+              id integer primary key autoincrement,
+              entry_type text not null,
+              title text not null default '',
+              amount_usd real not null default 0,
+              btc_amount real not null default 0,
+              btc_price_usd real,
+              listing_id text,
+              notes text not null default '',
+              entry_date text not null,
+              created_at text not null,
+              updated_at text not null
+            );
             """
         )
         existing = {row["key"] for row in conn.execute("select key from settings")}
         for key, value in DEFAULT_SETTINGS.items():
             if key not in existing:
                 conn.execute("insert into settings(key, value) values(?, ?)", (key, json.dumps(value)))
+        project_name = conn.execute("select value from settings where key = 'project_name'").fetchone()
+        if project_name and json.loads(project_name["value"]) == "Marketplace Bulk Listing Workstation":
+            conn.execute("update settings set value = ? where key = 'project_name'", (json.dumps(DEFAULT_SETTINGS["project_name"]),))
 
 
 def get_settings(db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
@@ -457,3 +483,209 @@ def list_logs(limit: int = 100, db_path: Path = DEFAULT_DB_PATH) -> list[dict[st
             }
             for row in rows
         ]
+
+
+BTC_ENTRY_TYPES = {"sale_proceeds", "cash_set_aside", "btc_purchase", "referral_bonus", "adjustment"}
+
+
+def normalize_btc_entry(data: dict[str, Any]) -> dict[str, Any]:
+    entry_type = str(data.get("entry_type") or "sale_proceeds")
+    if entry_type not in BTC_ENTRY_TYPES:
+        entry_type = "adjustment"
+    timestamp = now()
+    return {
+        "entry_type": entry_type,
+        "title": str(data.get("title") or entry_type.replace("_", " ").title())[:150],
+        "amount_usd": float(data.get("amount_usd") or 0),
+        "btc_amount": float(data.get("btc_amount") or 0),
+        "btc_price_usd": float(data["btc_price_usd"]) if data.get("btc_price_usd") not in (None, "") else None,
+        "listing_id": str(data.get("listing_id") or "") or None,
+        "notes": str(data.get("notes") or ""),
+        "entry_date": str(data.get("entry_date") or timestamp[:10]),
+    }
+
+
+def row_to_btc_entry(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "entry_type": row["entry_type"],
+        "title": row["title"],
+        "amount_usd": row["amount_usd"],
+        "btc_amount": row["btc_amount"],
+        "btc_price_usd": row["btc_price_usd"],
+        "listing_id": row["listing_id"],
+        "notes": row["notes"],
+        "entry_date": row["entry_date"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def list_btc_entries(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with connect(db_path) as conn:
+        rows = conn.execute("select * from btc_progress_entries order by entry_date desc, id desc").fetchall()
+        return [row_to_btc_entry(row) for row in rows]
+
+
+def create_btc_entry(data: dict[str, Any], db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
+    init_db(db_path)
+    entry = normalize_btc_entry(data)
+    timestamp = now()
+    with connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            insert into btc_progress_entries(entry_type, title, amount_usd, btc_amount, btc_price_usd, listing_id, notes, entry_date, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry["entry_type"],
+                entry["title"],
+                entry["amount_usd"],
+                entry["btc_amount"],
+                entry["btc_price_usd"],
+                entry["listing_id"],
+                entry["notes"],
+                entry["entry_date"],
+                timestamp,
+                timestamp,
+            ),
+        )
+        entry_id = cursor.lastrowid
+    add_log("info", f"Added BTC progress entry: {entry['title']}", listing_id=entry.get("listing_id"), db_path=db_path)
+    return get_btc_entry(int(entry_id), db_path) or {}
+
+
+def get_btc_entry(entry_id: int, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any] | None:
+    init_db(db_path)
+    with connect(db_path) as conn:
+        row = conn.execute("select * from btc_progress_entries where id = ?", (entry_id,)).fetchone()
+        return row_to_btc_entry(row) if row else None
+
+
+def patch_btc_entry(entry_id: int, patch: dict[str, Any], db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
+    current = get_btc_entry(entry_id, db_path)
+    if not current:
+        raise KeyError(entry_id)
+    current.update(patch)
+    entry = normalize_btc_entry(current)
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            update btc_progress_entries
+            set entry_type = ?, title = ?, amount_usd = ?, btc_amount = ?, btc_price_usd = ?, listing_id = ?, notes = ?, entry_date = ?, updated_at = ?
+            where id = ?
+            """,
+            (
+                entry["entry_type"],
+                entry["title"],
+                entry["amount_usd"],
+                entry["btc_amount"],
+                entry["btc_price_usd"],
+                entry["listing_id"],
+                entry["notes"],
+                entry["entry_date"],
+                now(),
+                entry_id,
+            ),
+        )
+    return get_btc_entry(entry_id, db_path) or {}
+
+
+def delete_btc_entry(entry_id: int, db_path: Path = DEFAULT_DB_PATH) -> bool:
+    init_db(db_path)
+    with connect(db_path) as conn:
+        cursor = conn.execute("delete from btc_progress_entries where id = ?", (entry_id,))
+        return cursor.rowcount > 0
+
+
+def btc_progress_summary(db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
+    settings = get_settings(db_path)
+    entries = list_btc_entries(db_path)
+    btc_goal = float(settings.get("btc_goal_amount") or 1)
+    starting_btc = float(settings.get("btc_owned") or 0)
+    manual_price = float(settings.get("manual_btc_usd_price") or 0)
+    proceeds_usd = 0.0
+    spent_on_btc_usd = 0.0
+    ledger_btc = 0.0
+    for entry in entries:
+        entry_type = entry["entry_type"]
+        amount_usd = float(entry.get("amount_usd") or 0)
+        btc_amount = float(entry.get("btc_amount") or 0)
+        if entry_type == "btc_purchase":
+            spent_on_btc_usd += amount_usd
+            ledger_btc += btc_amount
+        elif entry_type in {"sale_proceeds", "cash_set_aside", "referral_bonus", "adjustment"}:
+            proceeds_usd += amount_usd
+            ledger_btc += btc_amount
+    available_usd = proceeds_usd - spent_on_btc_usd
+    estimated_purchasable_btc = max(available_usd, 0) / manual_price if manual_price > 0 else 0
+    total_btc_owned = starting_btc + ledger_btc
+    projected_btc = total_btc_owned + estimated_purchasable_btc
+    remaining_btc = max(btc_goal - projected_btc, 0)
+    return {
+        "goal_btc": btc_goal,
+        "starting_btc_owned": starting_btc,
+        "ledger_btc": ledger_btc,
+        "total_btc_owned": total_btc_owned,
+        "manual_btc_usd_price": manual_price,
+        "gross_proceeds_usd": proceeds_usd,
+        "spent_on_btc_usd": spent_on_btc_usd,
+        "available_usd": available_usd,
+        "estimated_purchasable_btc": estimated_purchasable_btc,
+        "projected_btc": projected_btc,
+        "remaining_btc": remaining_btc,
+        "remaining_usd": remaining_btc * manual_price if manual_price > 0 else None,
+        "progress_percent": min((projected_btc / btc_goal) * 100, 100) if btc_goal > 0 else 0,
+        "entry_count": len(entries),
+        "currency": settings.get("progress_currency") or "USD",
+        "google_sheet_url": settings.get("google_sheet_url") or "",
+        "kraken_referral_url": settings.get("kraken_referral_url") or "",
+        "recent_entries": entries[:5],
+    }
+
+
+def btc_entries_csv(db_path: Path = DEFAULT_DB_PATH) -> str:
+    import csv
+
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["id", "entry_date", "entry_type", "title", "amount_usd", "btc_amount", "btc_price_usd", "listing_id", "notes"],
+    )
+    writer.writeheader()
+    for entry in reversed(list_btc_entries(db_path)):
+        writer.writerow({key: entry.get(key) for key in writer.fieldnames})
+    return output.getvalue()
+
+
+def btc_entries_xlsx(db_path: Path = DEFAULT_DB_PATH) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "BTC Progress Ledger"
+    headers = ["ID", "Date", "Type", "Title", "Amount USD", "BTC Amount", "BTC Price USD", "Listing ID", "Notes"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="111827")
+    for entry in reversed(list_btc_entries(db_path)):
+        ws.append(
+            [
+                entry["id"],
+                entry["entry_date"],
+                entry["entry_type"],
+                entry["title"],
+                entry["amount_usd"],
+                entry["btc_amount"],
+                entry["btc_price_usd"],
+                entry["listing_id"],
+                entry["notes"],
+            ]
+        )
+    widths = [10, 14, 18, 32, 14, 14, 16, 18, 48]
+    for index, width in enumerate(widths, start=1):
+        ws.column_dimensions[chr(64 + index)].width = width
+    ws.freeze_panes = "A2"
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()

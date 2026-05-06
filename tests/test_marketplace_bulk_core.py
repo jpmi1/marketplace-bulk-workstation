@@ -3,7 +3,19 @@ import unittest
 from pathlib import Path
 
 from marketplace_bulk.photo_intake import commit_photo_batch, get_batch, group_photos, save_batch
-from marketplace_bulk.storage import approve_listing, delete_listings, get_settings, list_listings, upsert_listing
+from marketplace_bulk.storage import (
+    approve_listing,
+    btc_entries_csv,
+    btc_entries_xlsx,
+    btc_progress_summary,
+    create_btc_entry,
+    delete_listings,
+    get_settings,
+    list_btc_entries,
+    list_listings,
+    update_settings,
+    upsert_listing,
+)
 from marketplace_bulk.validation import public_inventory_description, sanitize_public_description
 
 
@@ -118,6 +130,50 @@ Local pickup available."""
             listings = list_listings(db_path=db_path)
             self.assertEqual(listings[0]["source"], "photo_upload")
             self.assertEqual(listings[0]["photos"][0]["path"], str(photo_path))
+
+    def test_photo_intake_preserves_upload_order_and_splits_short_staging_gaps(self):
+        photos = [
+            {"id": "newer", "name": "IMG_4500.JPG", "last_modified": 100000, "path": "/tmp/newer.jpg"},
+            {"id": "same-item", "name": "IMG_4499.JPG", "last_modified": 92000, "path": "/tmp/same.jpg"},
+            {"id": "next-item", "name": "IMG_4498.JPG", "last_modified": 60000, "path": "/tmp/next.jpg"},
+        ]
+        groups = group_photos(photos)
+        self.assertEqual(groups[0]["photo_ids"], ["newer", "same-item"])
+        self.assertEqual(groups[1]["photo_ids"], ["next-item"])
+
+    def test_btc_progress_summary_math_and_exports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "project.db"
+            update_settings({"btc_owned": 0.1, "manual_btc_usd_price": 100000, "google_sheet_url": "https://docs.google.com/demo"}, db_path)
+            create_btc_entry({"entry_type": "sale_proceeds", "title": "Desk sale", "amount_usd": 250, "entry_date": "2026-05-01"}, db_path)
+            create_btc_entry({"entry_type": "cash_set_aside", "title": "Cash jar", "amount_usd": 50, "entry_date": "2026-05-02"}, db_path)
+            create_btc_entry({"entry_type": "btc_purchase", "title": "BTC buy", "amount_usd": 100, "btc_amount": 0.001, "entry_date": "2026-05-03"}, db_path)
+            create_btc_entry({"entry_type": "referral_bonus", "title": "Referral", "btc_amount": 0.0002, "entry_date": "2026-05-04"}, db_path)
+
+            summary = btc_progress_summary(db_path)
+            self.assertAlmostEqual(summary["gross_proceeds_usd"], 300)
+            self.assertAlmostEqual(summary["spent_on_btc_usd"], 100)
+            self.assertAlmostEqual(summary["available_usd"], 200)
+            self.assertAlmostEqual(summary["estimated_purchasable_btc"], 0.002)
+            self.assertAlmostEqual(summary["total_btc_owned"], 0.1012)
+            self.assertAlmostEqual(summary["projected_btc"], 0.1032)
+            self.assertEqual(summary["google_sheet_url"], "https://docs.google.com/demo")
+
+            csv_text = btc_entries_csv(db_path)
+            self.assertIn("entry_type", csv_text)
+            self.assertIn("Desk sale", csv_text)
+            self.assertGreater(len(btc_entries_xlsx(db_path)), 1000)
+            self.assertEqual(len(list_btc_entries(db_path)), 4)
+
+    def test_btc_settings_defaults_and_referral_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "project.db"
+            settings = get_settings(db_path)
+            self.assertEqual(settings["project_name"], "Sell to 1 BTC")
+            self.assertEqual(settings["btc_goal_amount"], 1.0)
+            self.assertEqual(settings["kraken_referral_url"], "")
+            updated = update_settings({"manual_btc_usd_price": 90000, "progress_currency": "USD"}, db_path)
+            self.assertEqual(updated["manual_btc_usd_price"], 90000)
 
 
 if __name__ == "__main__":

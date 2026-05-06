@@ -16,6 +16,8 @@ const { chromium } = require("playwright");
 const DEFAULT_API = "http://127.0.0.1:8766";
 const ROOT = path.resolve(__dirname, "..");
 const RESULT_DIR = path.join(ROOT, "projects", "default", "posting-runs");
+const LOGIN_WAIT_MS = 15 * 60 * 1000;
+const LOGIN_POLL_MS = 2500;
 
 function parseArgs(argv) {
   const args = { api: DEFAULT_API, publishApproved: false, limit: 0, ids: [], prefix: "" };
@@ -110,6 +112,38 @@ async function clickText(page, patterns) {
     }
   }
   return false;
+}
+
+async function facebookLoginRequired(page) {
+  const currentUrl = page.url();
+  if (/facebook\.com\/(login|checkpoint|recover|two_step_verification)/i.test(currentUrl)) return true;
+  if ((await page.locator('input[type="password"]').count().catch(() => 0)) > 0) return true;
+  const loginAction = await firstVisible([
+    page.getByRole("button", { name: /^(log in|login)$/i }),
+    page.getByRole("link", { name: /^(log in|login)$/i }),
+    page.getByText(/^(log in|login)$/i),
+  ]);
+  return Boolean(loginAction);
+}
+
+async function waitForFacebookLogin(page) {
+  console.log("Opening Facebook in the configured browser profile.");
+  console.log("If a login screen appears, log in in that browser window. Posting will start automatically after the session is ready.");
+  await page.goto("https://www.facebook.com/marketplace", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1000);
+  const startedAt = Date.now();
+  let lastReminderAt = 0;
+  while (await facebookLoginRequired(page)) {
+    if (Date.now() - startedAt > LOGIN_WAIT_MS) {
+      throw new Error("Timed out waiting for Facebook login in the opened browser profile.");
+    }
+    if (Date.now() - lastReminderAt > 30000) {
+      console.log("Waiting for Facebook login to finish in the browser window...");
+      lastReminderAt = Date.now();
+    }
+    await page.waitForTimeout(LOGIN_POLL_MS);
+  }
+  console.log("Facebook session is ready; starting the posting queue.");
 }
 
 function leaf(value) {
@@ -302,6 +336,7 @@ async function main() {
   });
   const page = await context.newPage();
   try {
+    await waitForFacebookLogin(page);
     for (const item of queue) {
       console.log(`Filling ${item.id}: ${item.title}`);
       try {

@@ -16,7 +16,7 @@ from marketplace_bulk.storage import DEFAULT_DB_PATH, init_db
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the local Marketplace bulk listing workstation.")
+    parser = argparse.ArgumentParser(description="Run Sell to 1 BTC, the local Marketplace listing and progress tracker.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)

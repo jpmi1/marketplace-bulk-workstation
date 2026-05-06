@@ -1,4 +1,4 @@
-"""Local-first Facebook Marketplace bulk listing workstation."""
+"""Sell to 1 BTC local-first Marketplace listing and progress tracker."""
 
 __all__ = ["__version__"]
 

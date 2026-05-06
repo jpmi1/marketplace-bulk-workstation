@@ -1,13 +1,14 @@
-# Facebook Marketplace Bulk Listing Workstation
+# Sell to 1 BTC
 
-This repo is a local-first workstation for bulk Facebook Marketplace listings. It can ingest photo-folder outputs and Excel/CSV inventory outputs, centralize edits in a SQLite project database, provide a React approval dashboard, export approved posting queues, and drive Facebook Marketplace through the user's logged-in browser profile.
+Sell to 1 BTC is a local-first app for selling used stuff on Facebook Marketplace and manually tracking progress toward owning 1 BTC. It can ingest photo-folder outputs and Excel/CSV inventory outputs, centralize edits in a SQLite project database, provide a React approval dashboard, export approved posting queues, drive Facebook Marketplace through the user's logged-in browser profile, and maintain a BTC progress ledger.
 
 1. Generate or import listing candidates.
 2. Upload photos or inventory through the local app.
 3. Review and edit every listing field in the app.
 4. Use Codex or Claude Code for gated research and cleanup.
 5. Use the browser worker to create Facebook drafts.
-6. Publish manually by default, or enable auto-publish explicitly in Settings.
+6. Track sale proceeds and manual BTC buys on the `BTC Goal` screen.
+7. Publish manually by default, or enable auto-publish explicitly in Settings.
 
 ## Local App
 
@@ -48,6 +49,18 @@ Then open `http://127.0.0.1:8766`.
 ## Photo Intake
 
 Open the `Intake` screen, drag in item photos, review the timestamp/filename groups, remove mismatched photos, set cover photos, and create `needs_review` listings. Uploaded files are copied into the local project folder and should never be committed.
+
+## BTC Goal
+
+Open the `BTC Goal` screen to track progress toward `1.00000000 BTC`. The tracker is manual and local-first:
+
+- record sale proceeds, cash set aside, BTC purchases, referral bonuses, and adjustments
+- link a progress entry to a listing when useful
+- enter BTC owned and BTC/USD price manually
+- export a Google Sheets-ready CSV or XLSX ledger
+- store a Google Sheet URL for quick access
+
+The app includes a configurable Kraken referral link that is hidden behind the BTC Goal screen's Bitcoin on Kraken button instead of displaying the full URL. Replace it in Settings for other deployments. Referral eligibility, bonus amounts, and deposit/trading terms vary by Kraken offer and location.
 
 ## Codex and Claude Code
 
@@ -104,7 +117,7 @@ Every listing field is editable before approval:
 
 ## Settings
 
-The Settings page controls location, defaults, shipping behavior, browser profile path, batch size, research toggles, reference-image policy, description tone, and forbidden public phrases.
+The Settings page controls location, defaults, shipping behavior, browser profile path, batch size, research toggles, reference-image policy, description tone, forbidden public phrases, BTC goal fields, Google Sheet URL, and Kraken referral URL.
 
 ## Generic Templates
 
@@ -121,4 +134,4 @@ These examples are intentionally generic. Do not commit real photos, inventory e
 npm test
 ```
 
-The tests cover quantity normalization, description sanitization, persistent project state, photo state, and approval validation.
+The tests cover quantity normalization, description sanitization, persistent project state, photo state, approval validation, BTC progress math, and progress exports.
