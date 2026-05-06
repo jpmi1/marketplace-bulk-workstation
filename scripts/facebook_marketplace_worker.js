@@ -18,14 +18,16 @@ const ROOT = path.resolve(__dirname, "..");
 const RESULT_DIR = path.join(ROOT, "projects", "default", "posting-runs");
 
 function parseArgs(argv) {
-  const args = { api: DEFAULT_API, publishApproved: false, limit: 0 };
+  const args = { api: DEFAULT_API, publishApproved: false, limit: 0, ids: [], prefix: "" };
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--api") args.api = argv[++i];
     else if (arg === "--publish-approved") args.publishApproved = true;
     else if (arg === "--limit") args.limit = Number(argv[++i]);
+    else if (arg === "--ids") args.ids = argv[++i].split(",").map((value) => value.trim()).filter(Boolean);
+    else if (arg === "--prefix") args.prefix = argv[++i];
     else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved] [--limit 5]");
+      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved] [--ids id1,id2] [--prefix batch-001] [--limit 5]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -114,10 +116,89 @@ function leaf(value) {
   return String(value || "").split("//").map((part) => part.trim()).filter(Boolean).at(-1) || String(value || "");
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function facebookCategoryCandidates(value) {
+  const lower = String(value || "").toLowerCase();
+  const fallback = ["Household"];
+  if (lower.includes("video game")) return unique(["Video Games", "Electronics & computers", ...fallback]);
+  if (lower.includes("electronics") || lower.includes("smart")) return unique(["Electronics & computers", "Household", ...fallback]);
+  if (lower.includes("home") || lower.includes("mattress") || lower.includes("bedroom")) return unique(["Household", "Furniture", ...fallback]);
+  return unique([leaf(value), ...fallback]);
+}
+
+function facebookCondition(value) {
+  const lower = String(value || "").toLowerCase();
+  if (lower.includes("new") && !lower.includes("like")) return "New";
+  if (lower.includes("fair")) return "Fair";
+  if (lower.includes("like new")) return "Like New";
+  return "Good";
+}
+
 async function chooseDropdownValue(page, triggerPatterns, valuePatterns) {
-  await clickText(page, triggerPatterns);
-  await page.waitForTimeout(600);
-  return clickText(page, valuePatterns);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const opened = await clickDropdownField(page, triggerPatterns);
+    if (!opened.opened) await clickText(page, triggerPatterns);
+    await page.waitForTimeout(800 + attempt * 500);
+    if (await clickDropdownOption(page, valuePatterns, opened.minY)) return true;
+  }
+  return false;
+}
+
+async function clickDropdownField(page, labelPatterns) {
+  for (const pattern of labelPatterns) {
+    const labels = await page.getByText(pattern).all().catch(() => []);
+    let label = null;
+    for (const candidate of labels) {
+      const box = await candidate.boundingBox().catch(() => null);
+      if (!box || box.x > 380 || box.width <= 0 || box.height <= 0) continue;
+      label = candidate;
+      break;
+    }
+    if (!label) label = await firstVisible([page.getByText(pattern).first()]);
+    if (!label) continue;
+    const box = await label.boundingBox().catch(() => null);
+    if (!box) continue;
+    await page.mouse.click(box.x + Math.min(285, Math.max(40, box.width + 15)), box.y + Math.max(8, box.height / 2));
+    return { opened: true, minY: box.y + box.height + 8 };
+  }
+  return { opened: false, minY: 100 };
+}
+
+async function clickDropdownOption(page, valuePatterns, minY = 100) {
+  for (const pattern of valuePatterns) {
+    const target = await visibleMenuCandidate(page, pattern, minY);
+    if (!target) continue;
+    const box = await target.boundingBox().catch(() => null);
+    if (box) {
+      await page.mouse.click(box.x + Math.min(24, box.width / 2), box.y + box.height / 2);
+    } else {
+      await target.click({ force: true });
+    }
+    await page.waitForTimeout(600);
+    return true;
+  }
+  return false;
+}
+
+async function visibleMenuCandidate(page, pattern, minY = 100) {
+  const textCandidates = await page.getByText(pattern).all().catch(() => []);
+  const roleCandidates = await page.locator('[role="option"], [role="button"], [role="menuitem"]').filter({ hasText: pattern }).all().catch(() => []);
+  const candidates = [...textCandidates, ...roleCandidates];
+  for (const candidate of candidates) {
+    const box = await candidate.boundingBox().catch(() => null);
+    if (!box || box.width <= 0 || box.height <= 0) continue;
+    const minX = minY > 420 ? 20 : 45;
+    if (box.x > 380 || box.x < minX || box.y < minY) continue;
+    return candidate;
+  }
+  return null;
 }
 
 async function uploadPhotos(page, paths) {
@@ -146,10 +227,13 @@ async function fillListing(page, item) {
     title: await fillFirst(page, [/title/i], item.title),
     price: await fillFirst(page, [/price/i], item.price),
     description: await fillFirst(page, [/description/i], item.description),
-    category: await chooseDropdownValue(page, [/category/i], [new RegExp(leaf(item.category), "i")]),
-    condition: await chooseDropdownValue(page, [/condition/i], [new RegExp(leaf(item.condition).replace(/^Used - /, ""), "i")]),
+    category: await chooseDropdownValue(page, [/category/i], facebookCategoryCandidates(item.category).map((candidate) => new RegExp(`^${escapeRegExp(candidate)}\\b`, "i"))),
+    condition: await chooseDropdownValue(page, [/condition/i], [new RegExp(`^Used - ${facebookCondition(item.condition)}$`, "i"), new RegExp(`^${facebookCondition(item.condition)}$`, "i")]),
     location: await fillFirst(page, [/location/i], item.location),
   };
+  if (!result.category || !result.condition) {
+    throw new Error(`Required Facebook dropdown was not selected: category=${result.category}, condition=${result.condition}`);
+  }
   if (item.pickup_enabled) await clickText(page, [/local pickup/i, /pickup/i]).catch(() => false);
   if (item.shipping_enabled) await clickText(page, [/shipping/i, /set up shipping/i]).catch(() => false);
   return result;
@@ -162,17 +246,50 @@ async function screenshot(page, item, suffix) {
   return out;
 }
 
+async function firstEnabledButton(page, pattern) {
+  const roleButtons = await page.getByRole("button", { name: pattern }).all().catch(() => []);
+  const textButtons = await page.getByText(pattern).all().catch(() => []);
+  const buttons = [...roleButtons, ...textButtons];
+  for (const button of buttons) {
+    if (!(await button.isVisible().catch(() => false))) continue;
+    if (await button.isDisabled().catch(() => false)) continue;
+    return button;
+  }
+  return null;
+}
+
 async function maybePublish(page) {
-  const publish = await firstVisible([page.getByRole("button", { name: /^publish$/i }), page.getByRole("button", { name: /^next$/i })]);
-  if (!publish) return false;
-  await publish.click();
-  return true;
+  for (let step = 0; step < 5; step += 1) {
+    await page.waitForTimeout(900);
+    const publish = await firstEnabledButton(page, /^publish$/i);
+    if (publish) {
+      await publish.click();
+      await page.waitForTimeout(2500);
+      return { published: true, step: "publish_clicked" };
+    }
+
+    const next = await firstEnabledButton(page, /^next$/i);
+    if (next) {
+      await next.click();
+      continue;
+    }
+
+    return { published: false, step: `no_enabled_publish_or_next_step_${step}` };
+  }
+  return { published: false, step: "publish_not_reached_after_steps" };
 }
 
 async function main() {
   const args = parseArgs(process.argv);
   const settings = await apiGet(args.api, "/api/settings");
   let queue = await apiGet(args.api, "/api/posting-queue");
+  if (args.ids.length) {
+    const wanted = new Set(args.ids);
+    queue = queue.filter((item) => wanted.has(item.id));
+  }
+  if (args.prefix) {
+    queue = queue.filter((item) => item.id.startsWith(args.prefix));
+  }
   if (args.limit > 0) queue = queue.slice(0, args.limit);
   if (!queue.length) {
     console.log("No approved, valid listings are available in the posting queue.");
@@ -192,8 +309,11 @@ async function main() {
         const shot = await screenshot(page, item, "draft");
         const autoPublish = Boolean(args.publishApproved && settings.auto_publish && item.auto_publish_allowed);
         if (autoPublish) {
-          const published = await maybePublish(page);
-          await apiPostLog(args.api, item, { status: published ? "published" : "drafted", posting_status: published ? "publish_clicked" : "publish_button_not_found" });
+          const publishResult = await maybePublish(page);
+          await apiPostLog(args.api, item, {
+            status: publishResult.published ? "published" : "drafted",
+            posting_status: publishResult.step,
+          });
         } else {
           await apiPostLog(args.api, item, { status: "drafted", posting_status: `draft_filled screenshot=${shot}` });
         }

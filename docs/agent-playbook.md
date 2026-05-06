@@ -64,3 +64,35 @@ Avoid owner-facing notes, unsupported testing claims, private pricing logic, and
 4. Approve listings.
 5. Run the browser worker in draft mode.
 6. Inspect Facebook drafts and publish manually, or enable auto-publish explicitly for approved listings.
+
+## Playwright Automation Workflow
+
+Use `scripts/facebook_marketplace_worker.js` for Facebook automation. Do not create one-off browser scripts unless the reusable worker cannot handle a current Facebook UI change.
+
+Common commands:
+
+```bash
+node scripts/facebook_marketplace_worker.js --ids example-001
+node scripts/facebook_marketplace_worker.js --prefix batch-2026-01
+node scripts/facebook_marketplace_worker.js --limit 5
+```
+
+Automatic posting requires explicit user approval plus both publish gates:
+
+```bash
+python3 - <<'PY'
+from marketplace_bulk.storage import update_settings
+update_settings({"auto_publish": True})
+PY
+
+node scripts/facebook_marketplace_worker.js --ids example-001 --publish-approved
+
+python3 - <<'PY'
+from marketplace_bulk.storage import update_settings
+update_settings({"auto_publish": False})
+PY
+```
+
+Record a listing as `published` only after clicking a visible enabled Facebook button named exactly `Publish`. Clicking `Next` is progress, not proof of publication. If Facebook stalls, inspect the latest screenshot in `projects/default/posting-runs/`, retry one listing in draft mode, and patch the reusable worker selectors.
+
+For the complete operational checklist, see `docs/playwright-posting.md`.

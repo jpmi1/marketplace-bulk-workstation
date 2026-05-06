@@ -63,12 +63,23 @@ npm run post:approved
 
 Screenshots and posting statuses are saved under `projects/default/posting-runs/` and in project state.
 
+Target specific runs with:
+
+```bash
+node scripts/facebook_marketplace_worker.js --ids example-001,example-002
+node scripts/facebook_marketplace_worker.js --prefix batch-2026-01
+node scripts/facebook_marketplace_worker.js --limit 5
+```
+
+See `docs/playwright-posting.md` for the full Codex/Claude Playwright workflow, recovery steps, and selector rules.
+
 ## Reusable Architecture
 
 - `marketplace_bulk/` contains the Python listing engine, SQLite storage, validation, importers, and FastAPI app.
 - `app/frontend/` contains the React/Vite approval dashboard.
 - `scripts/facebook_marketplace_worker.js` contains the reusable Playwright posting worker.
 - `docs/agent-playbook.md` explains how Codex or Claude Code should identify products, research comps/photos, write descriptions, and preserve confidence flags.
+- `AGENTS.md` and `CLAUDE.md` give future coding agents the repo rules for safe automation and Git hygiene.
 
 ## Review Dashboard
 
