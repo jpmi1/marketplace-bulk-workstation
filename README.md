@@ -6,9 +6,9 @@ Sell to 1 BTC is a local-first app for selling used stuff on Facebook Marketplac
 2. Upload photos or inventory through the local app.
 3. Review and edit every listing field in the app.
 4. Use Codex or Claude Code for gated research and cleanup.
-5. Use the browser worker to create Facebook drafts.
+5. Use the browser worker to post approved listings live to Facebook.
 6. Track sale proceeds and manual BTC buys on the `BTC Goal` screen.
-7. Publish manually by default, or enable auto-publish explicitly in Settings.
+7. Use draft mode only as a smoke test because Facebook drafts are not a reliable review surface.
 
 ## Local App
 
@@ -70,19 +70,19 @@ See `docs/agent-onboarding.md` for the full setup flow.
 
 ## Browser Worker
 
-The worker reads approved, valid listings from the API and fills Facebook Marketplace drafts in a persistent local browser profile. It never reads or stores credentials.
+The worker reads approved, valid listings from the API and posts them through Facebook Marketplace in a persistent local browser profile. It never reads or stores credentials.
 
 ```bash
-npm run post:drafts
+npm run post:live
 ```
 
-Draft-and-confirm is the default. To allow final Publish clicks, both conditions must be true:
+To allow final Publish clicks, both conditions must be true:
 
-- Settings page has `Auto-publish approved listings` enabled.
-- The worker is run with `--publish-approved`.
+- Settings page has `Live-post approved listings` enabled.
+- The worker is run with `--live` or `--publish-approved`.
 
 ```bash
-npm run post:approved
+npm run post:live
 ```
 
 Screenshots and posting statuses are saved under `projects/default/posting-runs/` and in project state.

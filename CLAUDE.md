@@ -9,8 +9,8 @@ The shortest safe workflow is:
 3. Use `BTC Goal` to manually track sale proceeds, BTC buys, Google Sheets-ready exports, and progress toward 1 BTC.
 4. Use `Agent Setup` to copy selected-listing prompts into Claude Code.
 5. Review listings and approve only clean buyer-facing descriptions with usable photos.
-6. Run `npm run post:drafts` for draft-and-confirm posting; the worker opens Facebook and waits for the user to finish browser login before it starts posting.
-7. Use `node scripts/facebook_marketplace_worker.js --ids <listing-id> --publish-approved` only after the user explicitly asks for auto-publish and Settings has `auto_publish=true`.
+6. Use draft mode only as a smoke test; Facebook drafts are not a reliable final handoff surface.
+7. Use `node scripts/facebook_marketplace_worker.js --ids <listing-id> --live` to post approved listings live only after the user explicitly asks for live posting and Settings has `auto_publish=true`.
 
 For price comp research, product facts, and additional image discovery, follow `docs/research-pipeline.md`. Respect `comp_research_enabled` and `image_research_enabled` before searching. Save sources and confidence into the app, not into committed local files.
 

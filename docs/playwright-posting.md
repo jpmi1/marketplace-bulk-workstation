@@ -6,12 +6,12 @@ This guide is for Codex, Claude Code, and other local agents operating this repo
 
 The worker uses Playwright with a persistent local browser profile. On launch it opens Facebook and pauses before posting until the user finishes any required login in that browser window. The repo never stores credentials.
 
-Default behavior is to fill a draft and stop. Final publishing requires two gates:
+Facebook drafts are not a reliable handoff surface. Use draft mode only as a smoke test; the normal final workflow is to live-post approved listings from the worker. Final publishing requires two gates:
 
 - Project setting: `auto_publish=true`
-- CLI flag: `--publish-approved`
+- CLI flag: `--live` or `--publish-approved`
 
-If either gate is missing, the worker fills the listing and records a draft status.
+If either gate is missing, the worker fills the listing and stops before Publish.
 
 ## Before Posting
 
@@ -32,9 +32,9 @@ npm run app
    - Shipping enabled only when package weight is known or a safe default exists
 4. Be ready to log into Facebook in the browser window opened by the worker if the configured profile is new or signed out.
 
-## Draft Mode
+## Smoke-Test Mode
 
-Use draft mode for validation and manual approval:
+Use draft mode only to verify selectors, login, and photo upload behavior:
 
 ```bash
 npm run post:drafts
@@ -47,9 +47,9 @@ The worker reads `/api/posting-queue`, filters to approved and valid listings, u
 
 At startup, the worker first opens `https://www.facebook.com/marketplace` and waits for the login screen to clear. Posting begins only after the browser session appears ready.
 
-## Auto-Publish Mode
+## Live Posting Mode
 
-Only use this when the user clearly asks for automatic publishing.
+Use this when the user clearly asks to post approved listings live to Facebook.
 
 ```bash
 python3 - <<'PY'
@@ -57,7 +57,7 @@ from marketplace_bulk.storage import update_settings
 print(update_settings({"auto_publish": True})["auto_publish"])
 PY
 
-node scripts/facebook_marketplace_worker.js --ids example-001 --publish-approved
+node scripts/facebook_marketplace_worker.js --ids example-001 --live
 
 python3 - <<'PY'
 from marketplace_bulk.storage import update_settings
@@ -65,7 +65,7 @@ print(update_settings({"auto_publish": False})["auto_publish"])
 PY
 ```
 
-Do not leave `auto_publish=true` after a run unless the user explicitly asks for that.
+Do not leave `auto_publish=true` after a live-posting run unless the user explicitly asks for that.
 
 ## Worker Flags
 
@@ -73,7 +73,7 @@ Do not leave `auto_publish=true` after a run unless the user explicitly asks for
 - `--ids id1,id2`: post only specific listing IDs.
 - `--prefix batch-prefix`: post only listings whose IDs start with the prefix.
 - `--limit 5`: cap queue size for dry runs.
-- `--publish-approved`: allow final publish clicks when Settings also permits it.
+- `--live` or `--publish-approved`: allow final Publish clicks when Settings also permits it.
 
 ## Facebook UI Handling
 
@@ -91,7 +91,7 @@ The reusable logic is in `scripts/facebook_marketplace_worker.js`.
 ## Recovering From Stuck Runs
 
 1. Stop the running worker process.
-2. Set auto-publish off:
+2. Set live posting off:
 
 ```bash
 python3 - <<'PY'
@@ -106,13 +106,13 @@ PY
 ls -t projects/default/posting-runs/*.png | head
 ```
 
-4. Retry one listing in draft mode:
+4. Retry one listing in smoke-test mode:
 
 ```bash
 node scripts/facebook_marketplace_worker.js --ids example-001
 ```
 
-5. Patch selectors or listing validation before attempting another auto-publish run.
+5. Patch selectors or listing validation before attempting another live-posting run.
 
 ## Research and Description Standards
 

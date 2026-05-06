@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This repo is Sell to 1 BTC: a local-first Facebook Marketplace listing workstation and manual Bitcoin progress tracker. Use it to ingest item data, review editable listings, automate Facebook draft/posting flows through Playwright in the user's configured browser profile, and track sale proceeds toward a 1 BTC goal.
+This repo is Sell to 1 BTC: a local-first Facebook Marketplace listing workstation and manual Bitcoin progress tracker. Use it to ingest item data, review editable listings, automate Facebook live posting flows through Playwright in the user's configured browser profile, and track sale proceeds toward a 1 BTC goal.
 
 ## Non-Negotiables
 
@@ -8,7 +8,7 @@ This repo is Sell to 1 BTC: a local-first Facebook Marketplace listing workstati
 - Do not commit real photos, browser profiles, SQLite project databases, posting screenshots, inventory exports, or user item details.
 - Keep public descriptions buyer-facing. Never post internal notes, pipeline notes, owner-facing reminders, or phrases listed in Settings as forbidden public phrases.
 - Preserve removed photos, cover-photo choices, listing edits, approvals, and posting results in project state.
-- Default to draft-and-confirm. Auto-publish is allowed only when the user explicitly asks for it and both the app setting and worker flag are enabled.
+- Default to review-and-confirm in the local app. Live posting is allowed only when the user explicitly asks for it and both the app setting and worker flag are enabled.
 - Do not imply financial advice, guaranteed Bitcoin outcomes, or guaranteed Kraken referral bonuses.
 
 ## Core Commands
@@ -33,28 +33,28 @@ node --check scripts/facebook_marketplace_worker.js
 
 ## Posting With Playwright
 
-Use the reusable worker instead of ad hoc browser scripts whenever possible:
+Use the reusable worker instead of ad hoc browser scripts whenever possible. Facebook drafts are not a reliable handoff surface, so use draft mode only for smoke tests and use live posting for approved listings when the user asks to post.
 
 ```bash
-npm run post:drafts
-node scripts/facebook_marketplace_worker.js --ids example-001
-node scripts/facebook_marketplace_worker.js --prefix batch-2026-01
+npm run post:live
+node scripts/facebook_marketplace_worker.js --ids example-001 --live
+node scripts/facebook_marketplace_worker.js --prefix batch-2026-01 --live
 ```
 
 On launch, the worker opens Facebook in the configured persistent browser profile and pauses before posting until the user finishes any required login in that browser window. Never ask for or store Facebook credentials; let the user complete login directly in the browser.
 
-To auto-publish approved listings, all of these must be true:
+To live-post approved listings, all of these must be true:
 
-1. The user explicitly asked for automatic publishing.
+1. The user explicitly asked for live posting.
 2. The listing is approved and valid in the app.
 3. Settings has `auto_publish=true`.
-4. The worker is run with `--publish-approved`.
+4. The worker is run with `--live` or `--publish-approved`.
 
 ```bash
-node scripts/facebook_marketplace_worker.js --ids example-001 --publish-approved
+node scripts/facebook_marketplace_worker.js --ids example-001 --live
 ```
 
-Always restore `auto_publish=false` after an auto-publish run unless the user asks to leave it enabled.
+Always restore `auto_publish=false` after a live-posting run unless the user asks to leave it enabled.
 
 Detailed instructions live in `docs/playwright-posting.md`.
 

@@ -56,14 +56,14 @@ Agents must read Settings before researching:
 
 ## Posting Gates
 
-Auto-publish is off by default. Agents may click final Publish only when:
+Live posting is off by default. Agents may click final Publish only when:
 
 - the user explicitly asks,
 - the listing is approved and valid,
 - Settings has `auto_publish=true`,
-- the worker is run with `--publish-approved`.
+- the worker is run with `--live` or `--publish-approved`.
 
-Otherwise use draft mode:
+Otherwise use draft mode only as a smoke test. Facebook drafts are not a reliable final handoff surface:
 
 ```bash
 npm run post:drafts

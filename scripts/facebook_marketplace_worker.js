@@ -4,8 +4,8 @@
  * Reusable browser worker for the local Marketplace workstation.
  *
  * Reads approved listings from the FastAPI project API, opens Facebook with a
- * persistent local profile, fills Marketplace item drafts, and stops before the
- * final Publish button unless both the project setting and CLI flag allow it.
+ * persistent local profile, posts Marketplace listings live when both the
+ * project setting and CLI flag allow it, and otherwise stops before Publish.
  */
 
 const fs = require("fs");
@@ -24,12 +24,12 @@ function parseArgs(argv) {
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--api") args.api = argv[++i];
-    else if (arg === "--publish-approved") args.publishApproved = true;
+    else if (arg === "--publish-approved" || arg === "--live") args.publishApproved = true;
     else if (arg === "--limit") args.limit = Number(argv[++i]);
     else if (arg === "--ids") args.ids = argv[++i].split(",").map((value) => value.trim()).filter(Boolean);
     else if (arg === "--prefix") args.prefix = argv[++i];
     else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved] [--ids id1,id2] [--prefix batch-001] [--limit 5]");
+      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved|--live] [--ids id1,id2] [--prefix batch-001] [--limit 5]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -328,6 +328,9 @@ async function main() {
   if (!queue.length) {
     console.log("No approved, valid listings are available in the posting queue.");
     return;
+  }
+  if (args.publishApproved && !settings.auto_publish) {
+    console.log("Live posting requested, but Settings auto_publish=false. The worker will fill listings and stop before Publish.");
   }
 
   const context = await chromium.launchPersistentContext(settings.facebook_profile_path, {

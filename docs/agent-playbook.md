@@ -5,7 +5,7 @@ This repo is designed for a local-first human review loop. Codex, Claude Code, o
 ## Core Rules
 
 - Never store Facebook credentials. Use the user's configured browser profile and let the worker pause for browser login when needed.
-- Default to draft-and-confirm. Auto-publish requires both an approved listing and `auto_publish=true` in Settings.
+- Default to local review-and-confirm. Live posting requires both an approved listing and `auto_publish=true` in Settings.
 - Keep original photos untouched. Copy or download posting assets only into managed project output folders.
 - Public listing descriptions must be buyer-facing. Do not include phrases like `storage inventory`, `pipeline`, `notes from sheet`, `photos still need`, or internal review instructions.
 - Web images are candidates/reference material. Do not post them as real item photos unless the user has explicitly approved reference-only posting and the listing clearly avoids implying they are original photos.
@@ -64,8 +64,8 @@ Avoid owner-facing notes, unsupported testing claims, private pricing logic, and
 2. Review every field in the app: title, price, condition, category, quantity, description, location, shipping, weight, notes, photos.
 3. Resolve validation errors.
 4. Approve listings.
-5. Run the browser worker in draft mode; it will wait for browser login before filling listings.
-6. Inspect Facebook drafts and publish manually, or enable auto-publish explicitly for approved listings.
+5. Use draft mode only as a smoke test; it will wait for browser login before filling listings.
+6. For the final workflow, run live posting for approved listings because Facebook drafts are not a reliable review surface.
 
 ## Playwright Automation Workflow
 
@@ -87,7 +87,7 @@ from marketplace_bulk.storage import update_settings
 update_settings({"auto_publish": True})
 PY
 
-node scripts/facebook_marketplace_worker.js --ids example-001 --publish-approved
+node scripts/facebook_marketplace_worker.js --ids example-001 --live
 
 python3 - <<'PY'
 from marketplace_bulk.storage import update_settings
@@ -95,7 +95,7 @@ update_settings({"auto_publish": False})
 PY
 ```
 
-Record a listing as `published` only after clicking a visible enabled Facebook button named exactly `Publish`. Clicking `Next` is progress, not proof of publication. If Facebook stalls, inspect the latest screenshot in `projects/default/posting-runs/`, retry one listing in draft mode, and patch the reusable worker selectors.
+Record a listing as `published` only after clicking a visible enabled Facebook button named exactly `Publish`. Clicking `Next` is progress, not proof of publication. If Facebook stalls, inspect the latest screenshot in `projects/default/posting-runs/`, retry one listing in smoke-test mode, and patch the reusable worker selectors.
 
 For the complete operational checklist, see `docs/playwright-posting.md`.
 

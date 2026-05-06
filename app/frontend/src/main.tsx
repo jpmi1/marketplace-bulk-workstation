@@ -909,7 +909,7 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
 
   function prompt(kind: "research" | "descriptions" | "post") {
     if (kind === "post") {
-      return `You are working in ${repoUrl}. Use the local Sell to 1 BTC app at http://127.0.0.1:8766. Post only these approved listing IDs: ${idText}. Use scripts/facebook_marketplace_worker.js with --ids for the selected listings; it opens Facebook and waits for the user to finish browser login before posting. Keep auto-publish off unless I explicitly enable it in Settings and ask for --publish-approved. Take screenshots on failure and update posting_status through the app.`;
+      return `You are working in ${repoUrl}. Use the local Sell to 1 BTC app at http://127.0.0.1:8766. Post only these approved listing IDs live to Facebook: ${idText}. Facebook drafts are not a reliable handoff surface, so use scripts/facebook_marketplace_worker.js with --ids and --live for the selected listings after Settings has auto_publish=true. The worker opens Facebook and waits for the user to finish browser login before posting. Take screenshots on failure and update posting_status through the app.`;
     }
     if (kind === "descriptions") {
       return `You are working in ${repoUrl}. Use the local app API at http://127.0.0.1:8766. Improve buyer-facing descriptions for these listing IDs: ${idText}. Do not include internal notes, pipeline language, or research notes in public descriptions. Save uncertainty in private_notes and patch results back through /api/listings/{id}. Current gates: ${gates}.`;
@@ -951,8 +951,8 @@ function AgentSetupView({ settings, selectedIds, listings }: { settings: AppSett
         />
         <SetupCard
           title="Verify posting access"
-          body="Keep Facebook credentials in the browser only. The worker will pause for browser login, then run draft mode first."
-          command={`npm run post:drafts\nnode scripts/facebook_marketplace_worker.js --ids ${selectedIds[0] || "example-001"}`}
+          body="Keep Facebook credentials in the browser only. Draft mode is only a smoke test; live posting requires approved listings plus the Settings gate."
+          command={`npm run post:drafts\nnpm run post:live -- --ids ${selectedIds[0] || "example-001"}`}
           onCopy={(text) => copy("posting check", text)}
         />
       </div>
@@ -1275,7 +1275,7 @@ function PostingQueue({ listings, settings }: { listings: Listing[]; settings: A
     <section className="page-section">
       <div className="section-header">
         <h2>Posting Queue</h2>
-        <p>{settings?.auto_publish ? "Auto-publish is enabled for approved listings." : "Draft-and-confirm is active. The worker stops before final Publish."}</p>
+        <p>{settings?.auto_publish ? "Live posting is enabled for approved listings." : "Live posting is off. Enable it in Settings before running the worker with --live."}</p>
       </div>
       <div className="table">
         {listings.map((listing) => (
@@ -1343,7 +1343,7 @@ function SettingsView({ settings, onSave }: { settings: AppSettings; onSave: (da
             <label><input type="checkbox" checked={draft.shipping_enabled_default} onChange={(event) => setDraft({ ...draft, shipping_enabled_default: event.target.checked })} /> Shipping by default</label>
             <label><input type="checkbox" checked={draft.image_research_enabled} onChange={(event) => setDraft({ ...draft, image_research_enabled: event.target.checked })} /> Image research enabled</label>
             <label><input type="checkbox" checked={draft.comp_research_enabled} onChange={(event) => setDraft({ ...draft, comp_research_enabled: event.target.checked })} /> Comp research enabled</label>
-            <label><input type="checkbox" checked={draft.auto_publish} onChange={(event) => setDraft({ ...draft, auto_publish: event.target.checked })} /> Auto-publish approved listings</label>
+            <label><input type="checkbox" checked={draft.auto_publish} onChange={(event) => setDraft({ ...draft, auto_publish: event.target.checked })} /> Live-post approved listings</label>
           </div>
         </div>
         <button className="primary" onClick={() => onSave(draft)}>Save settings</button>
