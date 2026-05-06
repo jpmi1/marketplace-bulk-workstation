@@ -79,6 +79,7 @@ See `docs/playwright-posting.md` for the full Codex/Claude Playwright workflow, 
 - `app/frontend/` contains the React/Vite approval dashboard.
 - `scripts/facebook_marketplace_worker.js` contains the reusable Playwright posting worker.
 - `docs/agent-playbook.md` explains how Codex or Claude Code should identify products, research comps/photos, write descriptions, and preserve confidence flags.
+- `docs/research-pipeline.md` explains the gated research workflow for price comps, product facts, and additional images.
 - `AGENTS.md` and `CLAUDE.md` give future coding agents the repo rules for safe automation and Git hygiene.
 
 ## Review Dashboard
@@ -97,6 +98,7 @@ The Settings page controls location, defaults, shipping behavior, browser profil
 
 - `examples/generic_template_item.json` shows the listing shape used by the local project store.
 - `examples/generic_inventory_template.csv` shows a simple inventory upload shape.
+- `examples/research_result_template.json` shows the patch format agents can use to save research results back to the app.
 
 These examples are intentionally generic. Do not commit real photos, inventory exports, posting outputs, browser profiles, or SQLite project databases.
 

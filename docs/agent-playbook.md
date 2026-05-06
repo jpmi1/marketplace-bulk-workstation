@@ -20,6 +20,8 @@ This repo is designed for a local-first human review loop. Codex, Claude Code, o
 
 ## Comp Research Workflow
 
+Only research comps when `comp_research_enabled=true` in Settings.
+
 1. Search current sources such as eBay active/sold listings, manufacturer pages, Facebook Marketplace, Amazon, and specialty resale sites.
 2. Save source URL, observed price, condition, date captured, and confidence.
 3. Recommend a market-median price unless the user chooses quick-sale or premium pricing.
@@ -96,3 +98,5 @@ PY
 Record a listing as `published` only after clicking a visible enabled Facebook button named exactly `Publish`. Clicking `Next` is progress, not proof of publication. If Facebook stalls, inspect the latest screenshot in `projects/default/posting-runs/`, retry one listing in draft mode, and patch the reusable worker selectors.
 
 For the complete operational checklist, see `docs/playwright-posting.md`.
+
+For the gated research workflow and JSON patch contract, see `docs/research-pipeline.md`.

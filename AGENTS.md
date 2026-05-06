@@ -53,6 +53,16 @@ Always restore `auto_publish=false` after an auto-publish run unless the user as
 
 Detailed instructions live in `docs/playwright-posting.md`.
 
+## Research Pipeline
+
+Research is gated by Settings:
+
+- `comp_research_enabled` must be true before searching prices or comp links.
+- `image_research_enabled` must be true before finding additional product/reference photos.
+- `reference_image_policy` controls how web images are handled.
+
+Use `docs/research-pipeline.md` for the full process. Save price comps, product facts, source links, confidence, and web image provenance into project state. Keep uncertainty in `private_notes`; keep public descriptions buyer-facing.
+
 ## Safe Git Scope
 
 Safe to commit:

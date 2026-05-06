@@ -1,0 +1,39 @@
+{
+  "data": {
+    "title": "Generic Researched Item Title",
+    "price": 25,
+    "condition": "Used - Good",
+    "category": "Home Goods",
+    "quantity_text": "1 unit available",
+    "description": "Selling a generic researched item.\n\nQuantity: 1 unit available.\n\nCondition: Used - Good.\n\nIncludes the item and accessories shown in the photos. Please confirm compatibility, sizing, and fit from the photos before buying.\n\nLocal pickup available. Shipping available through Facebook when supported; buyer pays shipping.",
+    "private_notes": "Research summary for reviewer. Include uncertainties here, not in public copy.",
+    "package_weight_oz": 16,
+    "reference_only_approved": false,
+    "comps": [
+      {
+        "url": "https://example.com/comparable-listing",
+        "source_type": "comp",
+        "title": "Comparable generic item",
+        "observed_price": "$25",
+        "condition": "Used",
+        "date_captured": "2026-01-01",
+        "confidence": "medium",
+        "notes": "Replace with real comp notes."
+      }
+    ],
+    "photos": [
+      {
+        "id": "example-001-web-candidate-01",
+        "uri": "https://example.com/reference-thumbnail.jpg",
+        "path": "",
+        "source_url": "https://example.com/source-product-page",
+        "kind": "web_candidate",
+        "provenance": "Example source page. Replace with real provenance.",
+        "removed": false,
+        "cover": false,
+        "sort_order": 2,
+        "rights_warning": "Reference candidate. Verify and approve before using as a final listing photo."
+      }
+    ]
+  }
+}
