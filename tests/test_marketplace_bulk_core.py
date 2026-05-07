@@ -1,8 +1,12 @@
+import asyncio
+import io
 import tempfile
 import unittest
 from pathlib import Path
 
-from marketplace_bulk.photo_intake import commit_photo_batch, get_batch, group_photos, save_batch
+from fastapi import UploadFile
+
+from marketplace_bulk.photo_intake import append_photo_batch, commit_photo_batch, get_batch, group_photos, save_batch
 from marketplace_bulk.local_recognition import extract_codes, recognition_patch
 from marketplace_bulk.storage import (
     apply_pickup_location_to_listings,
@@ -146,6 +150,24 @@ Local pickup available."""
             listings = list_listings(db_path=db_path)
             self.assertEqual(listings[0]["source"], "photo_upload")
             self.assertEqual(listings[0]["photos"][0]["path"], str(photo_path))
+
+    def test_photo_intake_appends_photos_to_existing_batch(self):
+        batch_id = "batch-test-append"
+        save_batch(
+            {
+                "id": batch_id,
+                "photos": [],
+                "groups": [],
+                "status": "uploaded",
+                "created_count": 0,
+            }
+        )
+        upload = UploadFile(file=io.BytesIO(b"fake image bytes"), filename="extra.jpg")
+        result = asyncio.run(append_photo_batch(batch_id, [upload]))
+        self.assertEqual(len(result["photos"]), 1)
+        self.assertEqual(result["photos"][0]["id"], "batch-test-append-photo-001")
+        self.assertEqual(result["groups"][0]["title"], "Photo group 1")
+        self.assertEqual(result["groups"][0]["photo_ids"], ["batch-test-append-photo-001"])
 
     def test_photo_intake_preserves_upload_order_and_splits_short_staging_gaps(self):
         photos = [

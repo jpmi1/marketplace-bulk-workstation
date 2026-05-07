@@ -57,10 +57,57 @@ async def create_photo_batch(files: list[UploadFile], metadata: list[dict[str, A
     batch_id = f"batch-{uuid.uuid4().hex[:12]}"
     upload_dir = UPLOAD_ROOT / batch_id
     upload_dir.mkdir(parents=True, exist_ok=True)
+    photos = _store_uploads(batch_id, upload_dir, files, metadata or [], start_index=1)
+
+    groups = group_photos(photos)
+    for group in groups:
+        if group["photo_ids"]:
+            group["cover_photo_id"] = group["photo_ids"][0]
+    batch = {
+        "id": batch_id,
+        "photos": photos,
+        "groups": groups,
+        "status": "uploaded",
+        "created_count": 0,
+    }
+    save_batch(batch)
+    add_log("info", f"Uploaded {len(photos)} photos for intake batch {batch_id}", details={"batch_id": batch_id}, db_path=db_path)
+    return batch
+
+
+async def append_photo_batch(batch_id: str, files: list[UploadFile], metadata: list[dict[str, Any]] | None = None, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
+    batch = get_batch(batch_id)
+    upload_dir = UPLOAD_ROOT / batch_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    existing_photos = batch.get("photos", [])
+    start_index = len(existing_photos) + 1
+    new_photos = _store_uploads(batch_id, upload_dir, files, metadata or [], start_index=start_index)
+    if not new_photos:
+        return batch
+
+    new_groups = group_photos(new_photos)
+    existing_group_ids = {group.get("id") for group in batch.get("groups", [])}
+    start_group_index = len(batch.get("groups", [])) + 1
+    for offset, group in enumerate(new_groups):
+        group["id"] = unique_group_id(existing_group_ids, start_group_index + offset)
+        group["title"] = f"Photo group {start_group_index + offset}"
+        if group["photo_ids"]:
+            group["cover_photo_id"] = group["photo_ids"][0]
+        existing_group_ids.add(group["id"])
+
+    batch["photos"] = [*existing_photos, *new_photos]
+    batch["groups"] = [*batch.get("groups", []), *new_groups]
+    batch["status"] = "uploaded"
+    save_batch(batch)
+    add_log("info", f"Added {len(new_photos)} photos to intake batch {batch_id}", details={"batch_id": batch_id}, db_path=db_path)
+    return batch
+
+
+def _store_uploads(batch_id: str, upload_dir: Path, files: list[UploadFile], metadata: list[dict[str, Any]], start_index: int) -> list[dict[str, Any]]:
     metadata_by_name = {str(item.get("name") or ""): item for item in metadata or []}
     photos: list[dict[str, Any]] = []
 
-    for index, upload in enumerate(files, start=1):
+    for index, upload in enumerate(files, start=start_index):
         original_name = safe_name(upload.filename or f"photo-{index}.jpg")
         ext = Path(original_name).suffix.lower()
         if ext and ext not in SUPPORTED_EXTENSIONS:
@@ -85,21 +132,16 @@ async def create_photo_batch(files: list[UploadFile], metadata: list[dict[str, A
                 "sort_order": index,
             }
         )
+    return photos
 
-    groups = group_photos(photos)
-    for group in groups:
-        if group["photo_ids"]:
-            group["cover_photo_id"] = group["photo_ids"][0]
-    batch = {
-        "id": batch_id,
-        "photos": photos,
-        "groups": groups,
-        "status": "uploaded",
-        "created_count": 0,
-    }
-    save_batch(batch)
-    add_log("info", f"Uploaded {len(photos)} photos for intake batch {batch_id}", details={"batch_id": batch_id}, db_path=db_path)
-    return batch
+
+def unique_group_id(existing_ids: set[str | None], index: int) -> str:
+    candidate = f"group-{index:03d}"
+    suffix = 2
+    while candidate in existing_ids:
+        candidate = f"group-{index:03d}-{suffix}"
+        suffix += 1
+    return candidate
 
 
 def group_photos(photos: list[dict[str, Any]]) -> list[dict[str, Any]]:

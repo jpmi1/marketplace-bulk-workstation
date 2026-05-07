@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from . import __version__
 from .importers import import_existing_outputs
 from .local_recognition import recognize_listing, recognize_listings
-from .photo_intake import commit_photo_batch, create_photo_batch, get_batch, photo_asset_path
+from .photo_intake import append_photo_batch, commit_photo_batch, create_photo_batch, get_batch, photo_asset_path
 from .storage import (
     DEFAULT_DB_PATH,
     ROOT,
@@ -160,6 +160,19 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         except json.JSONDecodeError:
             parsed_metadata = []
         return await create_photo_batch(files, parsed_metadata, db_path)
+
+    @app.post("/api/intake/batches/{batch_id}/photos")
+    async def intake_batch_append_photos(batch_id: str, files: list[UploadFile] = File(...), metadata: str = Form("[]")) -> dict[str, Any]:
+        try:
+            parsed_metadata = json.loads(metadata or "[]")
+            if not isinstance(parsed_metadata, list):
+                parsed_metadata = []
+        except json.JSONDecodeError:
+            parsed_metadata = []
+        try:
+            return await append_photo_batch(batch_id, files, parsed_metadata, db_path)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Intake batch not found") from None
 
     @app.get("/api/intake/batches/{batch_id}")
     def intake_batch(batch_id: str) -> dict[str, Any]:

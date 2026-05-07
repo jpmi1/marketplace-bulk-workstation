@@ -926,11 +926,11 @@ textarea:focus-visible {
 
 .dropzone .file-input {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  width: 1px;
+  height: 1px;
   opacity: 0;
-  cursor: pointer;
+  pointer-events: none;
+  clip-path: inset(50%);
 }
 
 .file-trigger.disabled .file-input {
@@ -942,6 +942,13 @@ textarea:focus-visible {
   gap: 14px;
 }
 
+.intake-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
 .intake-group,
 .setup-card,
 .prompt-card {
@@ -951,11 +958,23 @@ textarea:focus-visible {
   background: #fbfcfe;
 }
 
+.intake-group.drop-target {
+  border-color: var(--accent);
+  background: #f5f8ff;
+}
+
 .group-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .group-header input {
@@ -976,6 +995,14 @@ textarea:focus-visible {
   display: grid;
   gap: 6px;
   min-width: 0;
+}
+
+.intake-photo[draggable="true"] {
+  cursor: grab;
+}
+
+.intake-photo[draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .intake-photo.removed {

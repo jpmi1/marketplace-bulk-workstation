@@ -207,6 +207,14 @@ const api = {
     if (!response.ok) throw new Error(await response.text());
     return response.json();
   },
+  async appendPhotoIntake(batchId: string, files: File[]): Promise<IntakeBatch> {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    form.append("metadata", JSON.stringify(files.map((file) => ({ name: file.name, size: file.size, type: file.type, lastModified: file.lastModified }))));
+    const response = await fetch(`/api/intake/batches/${encodeURIComponent(batchId)}/photos`, { method: "POST", body: form });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  },
   async commitPhotoBatch(batchId: string, groups: IntakeGroup[]): Promise<{ batch_id: string; created: string[] }> {
     const response = await fetch(`/api/intake/photo-groups/${encodeURIComponent(batchId)}/commit`, {
       method: "POST",
@@ -755,9 +763,14 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
   const [batch, setBatch] = useState<IntakeBatch | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [dragPhoto, setDragPhoto] = useState<{ photoId: string; fromGroupId: string } | null>(null);
   const photosById = useMemo(() => new Map((batch?.photos || []).map((photo) => [photo.id, photo])), [batch]);
 
-  async function uploadFiles(fileList: FileList | File[]) {
+  function cloneGroups() {
+    return (batch?.groups || []).map((group) => ({ ...group, photo_ids: [...group.photo_ids], removed_photo_ids: [...(group.removed_photo_ids || [])] }));
+  }
+
+  async function uploadFiles(fileList: FileList | File[], mode: "new" | "append" = batch ? "append" : "new") {
     const files = Array.from(fileList).filter((file) => file.type.startsWith("image/") || /\.(jpe?g|png|heic|heif|webp)$/i.test(file.name));
     if (!files.length) {
       onUploaded("No image files found");
@@ -765,9 +778,22 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
     }
     setUploading(true);
     try {
-      const nextBatch = await api.uploadPhotoIntake(files);
-      setBatch(nextBatch);
-      onUploaded(`Uploaded ${nextBatch.photos.length} photos`);
+      if (mode === "append" && batch) {
+        const appendedBatch = await api.appendPhotoIntake(batch.id, files);
+        const existingPhotoIds = new Set(batch.photos.map((photo) => photo.id));
+        const newPhotos = appendedBatch.photos.filter((photo) => !existingPhotoIds.has(photo.id));
+        const newGroups = appendedBatch.groups.filter((group) => group.photo_ids.some((photoId) => !existingPhotoIds.has(photoId)));
+        setBatch({
+          ...appendedBatch,
+          photos: [...batch.photos, ...newPhotos],
+          groups: [...batch.groups, ...newGroups],
+        });
+        onUploaded(`Added ${newPhotos.length} photos`);
+      } else {
+        const nextBatch = await api.uploadPhotoIntake(files);
+        setBatch(nextBatch);
+        onUploaded(`Uploaded ${nextBatch.photos.length} photos`);
+      }
     } catch (error) {
       onUploaded(`Upload failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -784,26 +810,30 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
   }
 
   function movePhoto(photoId: string, fromGroupId: string, toGroupId: string) {
-    const groups = (batch?.groups || []).map((group) => ({ ...group, photo_ids: [...group.photo_ids] }));
+    if (fromGroupId === toGroupId) return;
+    const groups = cloneGroups();
     const from = groups.find((group) => group.id === fromGroupId);
     const to = groups.find((group) => group.id === toGroupId);
     if (!from || !to) return;
     from.photo_ids = from.photo_ids.filter((id) => id !== photoId);
+    from.removed_photo_ids = from.removed_photo_ids.filter((id) => id !== photoId);
     to.photo_ids.push(photoId);
+    to.removed_photo_ids = to.removed_photo_ids.filter((id) => id !== photoId);
     if (!from.cover_photo_id || from.cover_photo_id === photoId) from.cover_photo_id = from.photo_ids[0] || "";
     if (!to.cover_photo_id) to.cover_photo_id = photoId;
     setGroups(groups);
   }
 
   function movePhotoToNewGroup(photoId: string, fromGroupId: string) {
-    const groups = (batch?.groups || []).map((group) => ({ ...group, photo_ids: [...group.photo_ids] }));
+    const groups = cloneGroups();
     const from = groups.find((group) => group.id === fromGroupId);
     if (!from) return;
     from.photo_ids = from.photo_ids.filter((id) => id !== photoId);
+    from.removed_photo_ids = from.removed_photo_ids.filter((id) => id !== photoId);
     if (from.cover_photo_id === photoId) from.cover_photo_id = from.photo_ids[0] || "";
     groups.push({
       id: `group-${Date.now()}`,
-      title: `Photo group ${groups.length + 1}`,
+      title: `New listing ${groups.length + 1}`,
       photo_ids: [photoId],
       removed_photo_ids: [],
       cover_photo_id: photoId,
@@ -812,7 +842,7 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
   }
 
   function splitGroupAt(groupId: string, photoId: string) {
-    const groups = (batch?.groups || []).map((group) => ({ ...group, photo_ids: [...group.photo_ids], removed_photo_ids: [...group.removed_photo_ids] }));
+    const groups = cloneGroups();
     const index = groups.findIndex((group) => group.id === groupId);
     const group = groups[index];
     if (!group) return;
@@ -825,7 +855,7 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
     group.cover_photo_id = group.photo_ids.includes(group.cover_photo_id) ? group.cover_photo_id : group.photo_ids.find((id) => !group.removed_photo_ids.includes(id)) || group.photo_ids[0] || "";
     const nextGroup: IntakeGroup = {
       id: `group-${Date.now()}`,
-      title: `Photo group ${groups.length + 1}`,
+      title: `New listing ${groups.length + 1}`,
       photo_ids: splitIds,
       removed_photo_ids: [...splitRemoved],
       cover_photo_id: splitIds.includes(group.cover_photo_id) ? group.cover_photo_id : splitIds.find((id) => !splitRemoved.has(id)) || splitIds[0] || "",
@@ -835,13 +865,39 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
   }
 
   function mergeGroup(index: number) {
-    const groups = [...(batch?.groups || [])];
+    const groups = cloneGroups();
     if (index <= 0) return;
     const previous = groups[index - 1];
     const current = groups[index];
     previous.photo_ids = [...previous.photo_ids, ...current.photo_ids];
     previous.removed_photo_ids = [...new Set([...previous.removed_photo_ids, ...current.removed_photo_ids])];
     groups.splice(index, 1);
+    setGroups(groups);
+  }
+
+  function createEmptyGroup() {
+    const groups = cloneGroups();
+    groups.push({
+      id: `group-${Date.now()}`,
+      title: `New listing ${groups.length + 1}`,
+      photo_ids: [],
+      removed_photo_ids: [],
+      cover_photo_id: "",
+    });
+    setGroups(groups);
+  }
+
+  function splitEveryPhoto() {
+    const photos = cloneGroups()
+      .flatMap((group) => group.photo_ids.filter((photoId) => !(group.removed_photo_ids || []).includes(photoId)))
+      .filter((photoId, index, all) => all.indexOf(photoId) === index);
+    const groups = photos.map((photoId, index) => ({
+      id: `group-${Date.now()}-${index}`,
+      title: `New listing ${index + 1}`,
+      photo_ids: [photoId],
+      removed_photo_ids: [],
+      cover_photo_id: photoId,
+    }));
     setGroups(groups);
   }
 
@@ -885,10 +941,10 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
           }}
         >
           <UploadCloud size={30} />
-          <strong>{uploading ? "Uploading photos..." : "Drag photos here"}</strong>
-          <span>or choose JPG, PNG, HEIC, HEIF, or WebP files</span>
+          <strong>{uploading ? "Uploading photos..." : batch ? "Add more photos to this batch" : "Drag photos here"}</strong>
+          <span>{batch ? "New uploads will appear as extra listing groups below." : "or choose JPG, PNG, HEIC, HEIF, or WebP files"}</span>
           <label className={`primary file-trigger ${uploading ? "disabled" : ""}`} aria-disabled={uploading}>
-            <Upload size={16} /> Choose photos
+            <Upload size={16} /> {batch ? "Add photos" : "Choose photos"}
             <input
               className="file-input"
               type="file"
@@ -896,7 +952,7 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
               multiple
               disabled={uploading}
               onChange={(event) => {
-                if (event.target.files) uploadFiles(event.target.files);
+                if (event.target.files) uploadFiles(event.target.files, batch ? "append" : "new");
                 event.currentTarget.value = "";
               }}
             />
@@ -908,21 +964,40 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
         <div className="page-section">
           <div className="section-header">
             <div>
-              <h2>{batch.photos.length} photos in {batch.groups.length} groups</h2>
-              <p>Use these groups as the starting point. Move photos, set covers, then create listings.</p>
+              <h2>{batch.photos.length} photos in {batch.groups.length} listing groups</h2>
+              <p>Drag photos between listing groups, split where the item changes, or add a blank listing for the next item.</p>
             </div>
             <button className="primary" disabled={!activeGroupCount} onClick={() => onCommit(batch.id, batch.groups)}>
               <Check size={16} /> Create {activeGroupCount} listings
             </button>
           </div>
+          <div className="intake-toolbar">
+            <button className="secondary compact" onClick={createEmptyGroup}><Plus size={14} /> New listing group</button>
+            <button className="secondary compact" disabled={!batch.photos.length} onClick={splitEveryPhoto}>One listing per photo</button>
+            <button className="secondary compact" onClick={() => setBatch(null)}>Start fresh batch</button>
+          </div>
           <div className="intake-groups">
             {batch.groups.map((group, index) => {
               const activePhotos = group.photo_ids.filter((id) => !group.removed_photo_ids.includes(id));
               return (
-                <div className="intake-group" key={group.id}>
+                <div
+                  className={`intake-group ${dragPhoto && dragPhoto.fromGroupId !== group.id ? "drop-target" : ""}`}
+                  key={group.id}
+                  onDragOver={(event) => {
+                    if (dragPhoto) event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (dragPhoto) movePhoto(dragPhoto.photoId, dragPhoto.fromGroupId, group.id);
+                    setDragPhoto(null);
+                  }}
+                >
                   <div className="group-header">
                     <input value={group.title} onChange={(event) => updateGroup(group.id, { title: event.target.value })} aria-label="Group title" />
-                    <button className="secondary compact" disabled={index === 0} onClick={() => mergeGroup(index)}>Merge up</button>
+                    <div className="group-actions">
+                      <button className="secondary compact" disabled={index === 0} onClick={() => mergeGroup(index)}>Merge up</button>
+                      <button className="secondary compact" onClick={createEmptyGroup}><Plus size={14} /> Add listing</button>
+                    </div>
                   </div>
                   <div className="intake-photo-grid">
                     {group.photo_ids.map((photoId) => {
@@ -930,7 +1005,16 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
                       if (!photo) return null;
                       const removed = group.removed_photo_ids.includes(photoId);
                       return (
-                        <div className={`intake-photo ${removed ? "removed" : ""}`} key={photoId}>
+                        <div
+                          className={`intake-photo ${removed ? "removed" : ""}`}
+                          key={photoId}
+                          draggable
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = "move";
+                            setDragPhoto({ photoId, fromGroupId: group.id });
+                          }}
+                          onDragEnd={() => setDragPhoto(null)}
+                        >
                           <button className={`thumb-button ${group.cover_photo_id === photoId ? "cover" : ""}`} onClick={() => updateGroup(group.id, { cover_photo_id: photoId })}>
                             <img src={photo.uri} alt={photo.name} loading="lazy" />
                           </button>
@@ -938,7 +1022,7 @@ function IntakeView({ settings, onUploaded, onCommit }: { settings: AppSettings;
                           <div className="thumb-actions">
                             <button onClick={() => toggleRemoved(group, photoId)}>{removed ? "Restore" : "Remove"}</button>
                             <button disabled={group.photo_ids.indexOf(photoId) === 0} onClick={() => splitGroupAt(group.id, photoId)}>Split</button>
-                            <button onClick={() => movePhotoToNewGroup(photoId, group.id)}>New group</button>
+                            <button onClick={() => movePhotoToNewGroup(photoId, group.id)}>New listing</button>
                           </div>
                           {batch.groups.length > 1 && (
                             <select value="" onChange={(event) => event.target.value && movePhoto(photoId, group.id, event.target.value)} aria-label="Move photo to group">
