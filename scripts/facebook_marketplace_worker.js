@@ -18,7 +18,8 @@ const ROOT = path.resolve(__dirname, "..");
 const RESULT_DIR = path.join(ROOT, "projects", "default", "posting-runs");
 const LOGIN_WAIT_MS = 15 * 60 * 1000;
 const LOGIN_POLL_MS = 2500;
-const RENEW_LISTING_PATTERN = /(?:^|\b)(renew|refresh)(?:\s+(?:your\s+)?listing)?\??$/i;
+const RENEW_LISTING_PATTERN = /(?:^|\b)(renew|refresh)(?:\s+(?:your\s+)?listing)?\??(?:\b|$)/i;
+const RENEW_TIP_PATTERN = /^Tip:\s*Renew your listing\?/i;
 
 function parseArgs(argv) {
   const args = {
@@ -496,33 +497,42 @@ async function renewVisibleListings(page, limit = 0) {
   }
   let renewed = 0;
   const maxAttempts = limit > 0 ? limit : 50;
+  const seenTipListings = new Set();
+  let idleScrolls = 0;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const button = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
-    if (!button) {
-      await page.mouse.wheel(0, 800);
-      await page.waitForTimeout(900);
-      const afterScroll = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
-      if (!afterScroll) {
-        const menuButton = await firstEnabledButton(page, /^(more|more options|actions|manage)$/i);
-        if (!menuButton) break;
-        await menuButton.click();
-        await page.waitForTimeout(600);
-        const menuRenew = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
-        if (!menuRenew) {
-          await page.keyboard.press("Escape").catch(() => null);
-          break;
-        }
-        await menuRenew.click();
-        renewed += 1;
-        await page.waitForTimeout(1800);
-        continue;
-      }
-      await afterScroll.click();
-    } else {
+    if (button) {
       await button.click();
+      renewed += 1;
+      idleScrolls = 0;
+      await page.waitForTimeout(1800);
+      continue;
     }
-    renewed += 1;
-    await page.waitForTimeout(1800);
+
+    const tipCard = await firstRenewTipCard(page, seenTipListings);
+    if (tipCard) {
+      seenTipListings.add(tipCard.label);
+      await tipCard.card.click();
+      await page.waitForTimeout(1400);
+      const panelRenew = await firstEnabledButton(page, /^Renew listing$/i);
+      if (panelRenew) {
+        await panelRenew.click();
+        renewed += 1;
+        idleScrolls = 0;
+        await page.waitForTimeout(2200);
+      }
+      await page.keyboard.press("Escape").catch(() => null);
+      await page.waitForTimeout(700);
+      continue;
+    }
+
+    const beforeScroll = await page.evaluate(() => window.scrollY).catch(() => 0);
+    await page.mouse.wheel(0, 800);
+    await page.waitForTimeout(900);
+    const afterScrollY = await page.evaluate(() => window.scrollY).catch(() => 0);
+    if (Math.abs(afterScrollY - beforeScroll) < 20) idleScrolls += 1;
+    else idleScrolls = 0;
+    if (idleScrolls >= 3) break;
   }
   return { renewed };
 }
@@ -575,6 +585,20 @@ async function actionableFromTextCandidate(candidate, pattern) {
 
   if (pattern === RENEW_LISTING_PATTERN) return null;
   return candidate;
+}
+
+async function firstRenewTipCard(page, seenTipListings) {
+  const cards = await page.getByRole("button").filter({ hasText: RENEW_TIP_PATTERN }).all().catch(() => []);
+  for (const card of cards) {
+    if (!(await card.isVisible().catch(() => false))) continue;
+    if (await card.isDisabled().catch(() => false)) continue;
+    const box = await card.boundingBox().catch(() => null);
+    if (!box || box.width <= 0 || box.height <= 0 || box.y < 70 || box.y > 900) continue;
+    const label = (await card.getAttribute("aria-label").catch(() => "")) || (await card.innerText().catch(() => "")).split("\n")[1] || "listing";
+    if (seenTipListings.has(label)) continue;
+    return { card, label };
+  }
+  return null;
 }
 
 async function controlMatchesTextPattern(control, pattern) {

@@ -79,7 +79,7 @@ After a live run, verify the item from the web app's `Marketplace listings` shor
 - `--limit 5`: cap queue size for dry runs.
 - `--live` or `--publish-approved`: allow final Publish clicks when Settings also permits it.
 - `--edit-existing`: update an already-posted Marketplace listing using its saved `posted_url` or `--edit-url`.
-- `--renew-listings`: open the selling dashboard and click visible enabled `Renew` or `Refresh` listing controls, including Facebook prompts such as `Tip Renew your listing?`.
+- `--renew-listings`: open the selling dashboard and click visible enabled `Renew` or `Refresh` listing controls, including Facebook `Tip: Renew your listing?` cards that open a side-panel renew button.
 - `--renew-if-enabled`: run listing refresh only when Settings has auto-refresh enabled and the 3-4 day interval has elapsed.
 
 ## Listing Refresh
