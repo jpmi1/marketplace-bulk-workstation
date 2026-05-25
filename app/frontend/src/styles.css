@@ -1168,6 +1168,41 @@ textarea:focus-visible {
   grid-column: 1 / -1;
 }
 
+.refresh-settings {
+  display: grid;
+  gap: 10px;
+}
+
+.refresh-settings > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-inline span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-inline input {
+  width: 88px;
+}
+
+.refresh-command {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 .empty-state,
 .empty-wide {
   display: grid;

@@ -78,6 +78,20 @@ After a live run, verify the item from the web app's `Marketplace listings` shor
 - `--prefix batch-prefix`: post only listings whose IDs start with the prefix.
 - `--limit 5`: cap queue size for dry runs.
 - `--live` or `--publish-approved`: allow final Publish clicks when Settings also permits it.
+- `--edit-existing`: update an already-posted Marketplace listing using its saved `posted_url` or `--edit-url`.
+- `--renew-listings`: open the selling dashboard and click visible enabled `Renew` or `Refresh` listing controls.
+- `--renew-if-enabled`: run listing refresh only when Settings has auto-refresh enabled and the 3-4 day interval has elapsed.
+
+## Listing Refresh
+
+Older Marketplace listings can be refreshed from the worker without changing listing content:
+
+```bash
+npm run refresh:listings
+npm run refresh:listings:auto
+```
+
+Use Settings to enable automatic refresh, choose a 3-4 day cadence, and cap how many visible eligible listings the worker should refresh per run. The automatic command exits before opening Facebook when the setting is disabled or the saved last-run timestamp is not due yet. When it does run, it opens the configured persistent browser profile, waits for the user to complete any required Facebook login in that browser, and records the last refresh timestamp and result back into Settings.
 
 ## Facebook UI Handling
 

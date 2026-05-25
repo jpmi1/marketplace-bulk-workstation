@@ -77,6 +77,11 @@ type AppSettings = {
   carrier_preference: string;
   auto_publish: boolean;
   draft_and_confirm: boolean;
+  listing_auto_refresh_enabled: boolean;
+  listing_auto_refresh_interval_days: number;
+  listing_auto_refresh_limit: number;
+  listing_auto_refresh_last_run_at: string;
+  listing_auto_refresh_last_result: string;
   batch_size: number;
   facebook_profile_path: string;
   image_research_enabled: boolean;
@@ -1497,6 +1502,10 @@ function RunLog({ logs }: { logs: LogRow[] }) {
 function SettingsView({ settings, onSave, onApplyPickupLocation }: { settings: AppSettings; onSave: (data: Partial<AppSettings>) => Promise<void>; onApplyPickupLocation: () => Promise<void> }) {
   const [draft, setDraft] = useState(settings);
   useEffect(() => setDraft(settings), [settings]);
+  const refreshCommand = "npm run refresh:listings:auto";
+  const copyRefreshCommand = async () => {
+    await navigator.clipboard?.writeText(refreshCommand);
+  };
   return (
     <section className="settings-grid">
       <div className="page-section">
@@ -1522,6 +1531,29 @@ function SettingsView({ settings, onSave, onApplyPickupLocation }: { settings: A
           <Field label="Progress currency"><input value={draft.progress_currency} onChange={(event) => setDraft({ ...draft, progress_currency: event.target.value })} /></Field>
           <Field label="Kraken referral URL" wide><input type="password" autoComplete="off" value={draft.kraken_referral_url} onChange={(event) => setDraft({ ...draft, kraken_referral_url: event.target.value })} /></Field>
           <Field label="Google Sheet URL" wide><input value={draft.google_sheet_url} onChange={(event) => setDraft({ ...draft, google_sheet_url: event.target.value })} /></Field>
+          <Field label="Marketplace refresh" wide>
+            <div className="refresh-settings">
+              <label><input type="checkbox" checked={draft.listing_auto_refresh_enabled} onChange={(event) => setDraft({ ...draft, listing_auto_refresh_enabled: event.target.checked })} /> Automatically refresh older listings</label>
+              <div className="settings-inline">
+                <span>
+                  <small>Every</small>
+                  <input type="number" min="3" max="4" value={draft.listing_auto_refresh_interval_days || 3} onChange={(event) => setDraft({ ...draft, listing_auto_refresh_interval_days: Number(event.target.value) })} />
+                  <small>days</small>
+                </span>
+                <span>
+                  <small>Limit</small>
+                  <input type="number" min="1" max="100" value={draft.listing_auto_refresh_limit || 50} onChange={(event) => setDraft({ ...draft, listing_auto_refresh_limit: Number(event.target.value) })} />
+                </span>
+              </div>
+              <div className="repo-copy refresh-command">
+                <span>Command</span>
+                <code>{refreshCommand}</code>
+                <button type="button" className="secondary compact" onClick={copyRefreshCommand}><Copy size={15} /> Copy</button>
+              </div>
+              <small>{draft.listing_auto_refresh_last_run_at ? `Last run: ${new Date(draft.listing_auto_refresh_last_run_at).toLocaleString()}` : "Last run: never"}</small>
+              {draft.listing_auto_refresh_last_result ? <small>{draft.listing_auto_refresh_last_result}</small> : null}
+            </div>
+          </Field>
           <Field label="Forbidden public phrases" wide>
             <textarea className="notes" value={draft.forbidden_public_phrases.join("\n")} onChange={(event) => setDraft({ ...draft, forbidden_public_phrases: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean) })} />
           </Field>

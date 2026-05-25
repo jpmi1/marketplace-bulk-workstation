@@ -20,16 +20,30 @@ const LOGIN_WAIT_MS = 15 * 60 * 1000;
 const LOGIN_POLL_MS = 2500;
 
 function parseArgs(argv) {
-  const args = { api: DEFAULT_API, publishApproved: false, limit: 0, ids: [], prefix: "" };
+  const args = {
+    api: DEFAULT_API,
+    publishApproved: false,
+    editExisting: false,
+    renewListings: false,
+    renewIfEnabled: false,
+    limit: 0,
+    ids: [],
+    prefix: "",
+    editUrl: "",
+  };
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--api") args.api = argv[++i];
     else if (arg === "--publish-approved" || arg === "--live") args.publishApproved = true;
+    else if (arg === "--edit-existing") args.editExisting = true;
+    else if (arg === "--renew-listings" || arg === "--refresh-listings") args.renewListings = true;
+    else if (arg === "--renew-if-enabled" || arg === "--refresh-if-enabled") args.renewIfEnabled = true;
+    else if (arg === "--edit-url") args.editUrl = argv[++i];
     else if (arg === "--limit") args.limit = Number(argv[++i]);
     else if (arg === "--ids") args.ids = argv[++i].split(",").map((value) => value.trim()).filter(Boolean);
     else if (arg === "--prefix") args.prefix = argv[++i];
     else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved|--live] [--ids id1,id2] [--prefix batch-001] [--limit 5]");
+      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved|--live] [--edit-existing] [--edit-url URL] [--renew-listings|--renew-if-enabled] [--ids id1,id2] [--prefix batch-001] [--limit 5]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -78,7 +92,11 @@ async function materializePhotos(item) {
   for (let index = 0; index < urls.length; index += 1) {
     const ext = path.extname(new URL(urls[index]).pathname).slice(0, 6) || ".jpg";
     const out = path.join(tmpDir, `${String(index + 1).padStart(2, "0")}${ext}`);
-    if (fs.existsSync(out) || (await downloadUrl(urls[index], out))) downloaded.push(out);
+    try {
+      if (fs.existsSync(out) || (await downloadUrl(urls[index], out))) downloaded.push(out);
+    } catch (error) {
+      console.warn(`Skipping unavailable reference photo ${urls[index]}: ${error.message}`);
+    }
   }
   return [...local, ...downloaded];
 }
@@ -144,7 +162,7 @@ async function waitForFacebookLogin(page) {
     }
     await page.waitForTimeout(LOGIN_POLL_MS);
   }
-  console.log("Facebook session is ready; starting the posting queue.");
+  console.log("Facebook session is ready; starting Marketplace automation.");
 }
 
 function leaf(value) {
@@ -293,6 +311,221 @@ async function fillListing(page, item) {
   return result;
 }
 
+function listingIdFromUrl(url) {
+  const match = String(url || "").match(/(?:listing_id=|marketplace\/item\/)(\d+)/i);
+  return match ? match[1] : "";
+}
+
+function editUrlForListing(item, explicitUrl = "") {
+  if (explicitUrl) return explicitUrl;
+  const listingId = listingIdFromUrl(item.posted_url);
+  if (!listingId) {
+    throw new Error(`${item.id}: no Facebook listing id found in posted_url; pass --edit-url`);
+  }
+  return `https://www.facebook.com/marketplace/edit/?listing_id=${listingId}`;
+}
+
+function clampRefreshIntervalDays(value) {
+  const parsed = Number(value || 3);
+  if (!Number.isFinite(parsed)) return 3;
+  return Math.min(4, Math.max(3, parsed));
+}
+
+function autoRefreshDecision(settings) {
+  if (!settings.listing_auto_refresh_enabled) {
+    return { run: false, message: "Marketplace listing auto-refresh is disabled in Settings." };
+  }
+  const intervalDays = clampRefreshIntervalDays(settings.listing_auto_refresh_interval_days);
+  const lastRun = Date.parse(settings.listing_auto_refresh_last_run_at || "");
+  if (Number.isFinite(lastRun)) {
+    const elapsedMs = Date.now() - lastRun;
+    const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
+    if (elapsedMs < intervalMs) {
+      const nextRun = new Date(lastRun + intervalMs).toISOString();
+      return { run: false, message: `Marketplace listing auto-refresh is not due yet. Next eligible run: ${nextRun}` };
+    }
+  }
+  return { run: true, message: `Marketplace listing auto-refresh is enabled and due after ${intervalDays} days.` };
+}
+
+async function fullListingToQueueItem(base, id) {
+  const listing = await apiGet(base, `/api/listings/${encodeURIComponent(id)}`);
+  const photos = (listing.photos || [])
+    .filter((photo) => !photo.removed)
+    .sort((a, b) => Number(!a.cover) - Number(!b.cover) || (a.sort_order || 0) - (b.sort_order || 0) || String(a.id).localeCompare(String(b.id)));
+  return {
+    id: listing.id,
+    title: listing.title,
+    price: listing.price,
+    condition: listing.condition,
+    category: listing.category,
+    quantity_text: listing.quantity_text,
+    description: listing.description,
+    location: listing.location,
+    pickup_enabled: listing.pickup_enabled,
+    shipping_enabled: listing.shipping_enabled,
+    package_weight_oz: listing.package_weight_oz,
+    posted_url: listing.posted_url,
+    photo_paths: photos.map((photo) => photo.path).filter(Boolean),
+    photo_urls: photos
+      .filter((photo) => photo.kind !== "web_candidate" || photo.reference_only_approved)
+      .map((photo) => photo.source_url || photo.uri)
+      .filter((value) => value && /^https?:\/\//i.test(value)),
+  };
+}
+
+async function replaceExistingText(page, labels, value) {
+  for (const label of labels) {
+    const targets = [
+      page.getByLabel(label),
+      page.getByPlaceholder(label),
+      page.getByRole("textbox", { name: label }),
+      page.locator('input, textarea, [contenteditable="true"]').filter({ hasText: label }),
+    ];
+    const target = await firstVisible(targets);
+    if (!target) continue;
+    await target.scrollIntoViewIfNeeded().catch(() => null);
+    await target.click({ clickCount: 3 }).catch(() => null);
+    await target.fill(String(value || "")).catch(async () => {
+      await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+      await page.keyboard.type(String(value || ""), { delay: 2 });
+    });
+    return true;
+  }
+  return false;
+}
+
+async function updateExistingListing(page, item, explicitUrl = "") {
+  const url = editUrlForListing(item, explicitUrl);
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(3500);
+
+  if (await facebookLoginRequired(page)) {
+    throw new Error("Facebook is not logged in in this browser profile.");
+  }
+
+  const photos = await materializePhotos(item);
+  let uploaded = 0;
+  if (photos.length) {
+    await removeExistingFacebookPhotos(page);
+    uploaded = await uploadPhotos(page, photos.slice(0, 10)).catch(() => 0);
+    await page.waitForTimeout(uploaded ? 1500 : 500);
+  }
+
+  const result = {
+    uploaded,
+    title: await replaceExistingText(page, [/title/i], item.title),
+    price: await replaceExistingText(page, [/price/i], item.price),
+    description: await replaceExistingText(page, [/description/i], item.description),
+    location: await replaceExistingText(page, [/location/i], item.location),
+  };
+
+  const saveResult = await saveExistingEdit(page);
+  if (!saveResult.saved) {
+    throw new Error(`Could not find enabled Save/Update button after editing: ${JSON.stringify(result)}`);
+  }
+  return { ...result, step: saveResult.step };
+}
+
+async function removeExistingFacebookPhotos(page) {
+  await page.evaluate(() => window.scrollTo(0, 0)).catch(() => null);
+  await page.waitForTimeout(700);
+  let removed = 0;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const remove = await firstVisible([
+      page.getByRole("button", { name: /^(remove|delete|remove photo|delete photo)$/i }),
+      page.locator('button[aria-label*="Remove" i]').first(),
+      page.locator('button[aria-label*="Delete" i]').first(),
+      page.locator('[aria-label*="Remove photo" i]').first(),
+      page.locator('[aria-label*="Delete photo" i]').first(),
+    ]);
+    if (!remove) break;
+    await remove.click().catch(() => null);
+    removed += 1;
+    await page.waitForTimeout(500);
+    const confirm = await firstEnabledButton(page, /^(remove|delete|confirm)$/i);
+    if (confirm) {
+      await confirm.click();
+      await page.waitForTimeout(800);
+    }
+  }
+  return removed;
+}
+
+async function saveExistingEdit(page) {
+  for (let step = 0; step < 8; step += 1) {
+    await page.waitForTimeout(900);
+    const save = await firstEnabledButton(page, /^(save|update|publish)$/i);
+    if (save) {
+      const label = (await save.innerText().catch(() => "save")).trim() || "save";
+      await save.click();
+      await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => null);
+      await page.waitForTimeout(2500);
+      return { saved: true, step: label.toLowerCase().replace(/\s+/g, "_") };
+    }
+
+    const next = await firstEnabledButton(page, /^next$/i);
+    if (next) {
+      await next.click();
+      continue;
+    }
+
+    const skip = await firstEnabledButton(page, /^skip$/i);
+    if (skip) {
+      await skip.click();
+      continue;
+    }
+
+    const notNow = await firstEnabledButton(page, /^not now$/i);
+    if (notNow) {
+      await notNow.click();
+      continue;
+    }
+
+    break;
+  }
+  return { saved: false, step: "save_or_update_not_reached" };
+}
+
+async function renewVisibleListings(page, limit = 0) {
+  await page.goto("https://www.facebook.com/marketplace/you/selling", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(3500);
+  if (await facebookLoginRequired(page)) {
+    throw new Error("Facebook is not logged in in this browser profile.");
+  }
+  let renewed = 0;
+  const maxAttempts = limit > 0 ? limit : 50;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const button = await firstEnabledButton(page, /^(renew|renew listing|refresh|refresh listing)$/i);
+    if (!button) {
+      await page.mouse.wheel(0, 800);
+      await page.waitForTimeout(900);
+      const afterScroll = await firstEnabledButton(page, /^(renew|renew listing|refresh|refresh listing)$/i);
+      if (!afterScroll) {
+        const menuButton = await firstEnabledButton(page, /^(more|more options|actions|manage)$/i);
+        if (!menuButton) break;
+        await menuButton.click();
+        await page.waitForTimeout(600);
+        const menuRenew = await firstEnabledButton(page, /^(renew|renew listing|refresh|refresh listing)$/i);
+        if (!menuRenew) {
+          await page.keyboard.press("Escape").catch(() => null);
+          break;
+        }
+        await menuRenew.click();
+        renewed += 1;
+        await page.waitForTimeout(1800);
+        continue;
+      }
+      await afterScroll.click();
+    } else {
+      await button.click();
+    }
+    renewed += 1;
+    await page.waitForTimeout(1800);
+  }
+  return { renewed };
+}
+
 async function screenshot(page, item, suffix) {
   fs.mkdirSync(RESULT_DIR, { recursive: true });
   const out = path.join(RESULT_DIR, `${item.id}-${suffix}-${Date.now()}.png`);
@@ -368,16 +601,30 @@ async function maybeSaveDraft(page) {
 async function main() {
   const args = parseArgs(process.argv);
   const settings = await apiGet(args.api, "/api/settings");
-  let queue = await apiGet(args.api, "/api/posting-queue");
-  if (args.ids.length) {
-    const wanted = new Set(args.ids);
-    queue = queue.filter((item) => wanted.has(item.id));
+  if (args.renewIfEnabled) {
+    const decision = autoRefreshDecision(settings);
+    console.log(decision.message);
+    if (!decision.run) return;
+    args.renewListings = true;
+    if (!args.limit) args.limit = Number(settings.listing_auto_refresh_limit || 50);
   }
-  if (args.prefix) {
-    queue = queue.filter((item) => item.id.startsWith(args.prefix));
+  let queue = [];
+  if (!args.renewListings || args.editExisting) {
+    queue = await apiGet(args.api, "/api/posting-queue");
+    if (args.ids.length) {
+      const wanted = new Set(args.ids);
+      queue = queue.filter((item) => wanted.has(item.id));
+    }
+    if (args.prefix) {
+      queue = queue.filter((item) => item.id.startsWith(args.prefix));
+    }
+    if (args.limit > 0) queue = queue.slice(0, args.limit);
+    if (args.editExisting && args.ids.length) {
+      queue = [];
+      for (const id of args.ids) queue.push(await fullListingToQueueItem(args.api, id));
+    }
   }
-  if (args.limit > 0) queue = queue.slice(0, args.limit);
-  if (!queue.length) {
+  if (!queue.length && !args.renewListings) {
     console.log("No approved, valid listings are available in the posting queue.");
     return;
   }
@@ -392,28 +639,54 @@ async function main() {
   const page = await context.newPage();
   try {
     await waitForFacebookLogin(page);
-    for (const item of queue) {
-      console.log(`Filling ${item.id}: ${item.title}`);
-      try {
-        const result = await fillListing(page, item);
-        const shot = await screenshot(page, item, "draft");
-        const autoPublish = Boolean(args.publishApproved && settings.auto_publish && item.auto_publish_allowed);
-        if (autoPublish) {
-          const publishResult = await maybePublish(page);
+    if (args.renewListings) {
+      const result = await renewVisibleListings(page, args.limit);
+      const message = `Renewed/refreshed ${result.renewed} visible listings.`;
+      console.log(message);
+      await apiPatch(args.api, "/api/settings", {
+        listing_auto_refresh_last_run_at: new Date().toISOString(),
+        listing_auto_refresh_last_result: message,
+      }).catch((error) => console.warn(`Could not store listing refresh result: ${error.message}`));
+    } else if (args.editExisting) {
+      for (const item of queue) {
+        console.log(`Updating existing Facebook listing ${item.id}: ${item.title}`);
+        try {
+          const result = await updateExistingListing(page, item, args.editUrl);
           await apiPostLog(args.api, item, {
-            status: publishResult.published ? "published" : "drafted",
-            posting_status: publishResult.step,
-            posted_url: publishResult.postedUrl || "",
+            status: "published",
+            posting_status: `live_edit_saved ${JSON.stringify(result)}`,
           });
-        } else {
-          const draftResult = await maybeSaveDraft(page);
-          await apiPostLog(args.api, item, { status: "drafted", posting_status: `${draftResult.step} screenshot=${shot}` });
+          console.log(`Updated ${item.id}: ${JSON.stringify(result)}`);
+        } catch (error) {
+          const shot = await screenshot(page, item, "edit-failed");
+          await apiPostLog(args.api, item, { status: "failed", posting_status: `${error.message} screenshot=${shot}` });
+          throw error;
         }
-        console.log(`Filled ${item.id}: ${JSON.stringify(result)}`);
-      } catch (error) {
-        const shot = await screenshot(page, item, "failed");
-        await apiPostLog(args.api, item, { status: "failed", posting_status: `${error.message} screenshot=${shot}` });
-        console.error(`Failed ${item.id}: ${error.message}`);
+      }
+    } else {
+      for (const item of queue) {
+        console.log(`Filling ${item.id}: ${item.title}`);
+        try {
+          const result = await fillListing(page, item);
+          const shot = await screenshot(page, item, "draft");
+          const autoPublish = Boolean(args.publishApproved && settings.auto_publish && item.auto_publish_allowed);
+          if (autoPublish) {
+            const publishResult = await maybePublish(page);
+            await apiPostLog(args.api, item, {
+              status: publishResult.published ? "published" : "drafted",
+              posting_status: publishResult.step,
+              posted_url: publishResult.postedUrl || "",
+            });
+          } else {
+            const draftResult = await maybeSaveDraft(page);
+            await apiPostLog(args.api, item, { status: "drafted", posting_status: `${draftResult.step} screenshot=${shot}` });
+          }
+          console.log(`Filled ${item.id}: ${JSON.stringify(result)}`);
+        } catch (error) {
+          const shot = await screenshot(page, item, "failed");
+          await apiPostLog(args.api, item, { status: "failed", posting_status: `${error.message} screenshot=${shot}` });
+          console.error(`Failed ${item.id}: ${error.message}`);
+        }
       }
     }
   } finally {

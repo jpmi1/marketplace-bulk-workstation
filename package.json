@@ -10,6 +10,8 @@
     "post:drafts": "node scripts/facebook_marketplace_worker.js",
     "post:approved": "node scripts/facebook_marketplace_worker.js --publish-approved",
     "post:live": "node scripts/facebook_marketplace_worker.js --live",
+    "refresh:listings": "node scripts/facebook_marketplace_worker.js --renew-listings",
+    "refresh:listings:auto": "node scripts/facebook_marketplace_worker.js --renew-if-enabled",
     "test": "python3 -m unittest discover -s tests",
     "frontend:build": "npm --prefix app/frontend run build"
   },
