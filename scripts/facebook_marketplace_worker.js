@@ -18,6 +18,7 @@ const ROOT = path.resolve(__dirname, "..");
 const RESULT_DIR = path.join(ROOT, "projects", "default", "posting-runs");
 const LOGIN_WAIT_MS = 15 * 60 * 1000;
 const LOGIN_POLL_MS = 2500;
+const RENEW_LISTING_PATTERN = /(?:^|\b)(renew|refresh)(?:\s+(?:your\s+)?listing)?\??$/i;
 
 function parseArgs(argv) {
   const args = {
@@ -496,17 +497,17 @@ async function renewVisibleListings(page, limit = 0) {
   let renewed = 0;
   const maxAttempts = limit > 0 ? limit : 50;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const button = await firstEnabledButton(page, /^(renew|renew listing|refresh|refresh listing)$/i);
+    const button = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
     if (!button) {
       await page.mouse.wheel(0, 800);
       await page.waitForTimeout(900);
-      const afterScroll = await firstEnabledButton(page, /^(renew|renew listing|refresh|refresh listing)$/i);
+      const afterScroll = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
       if (!afterScroll) {
         const menuButton = await firstEnabledButton(page, /^(more|more options|actions|manage)$/i);
         if (!menuButton) break;
         await menuButton.click();
         await page.waitForTimeout(600);
-        const menuRenew = await firstEnabledButton(page, /^(renew|renew listing|refresh|refresh listing)$/i);
+        const menuRenew = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
         if (!menuRenew) {
           await page.keyboard.press("Escape").catch(() => null);
           break;
@@ -535,14 +536,52 @@ async function screenshot(page, item, suffix) {
 
 async function firstEnabledButton(page, pattern) {
   const roleButtons = await page.getByRole("button", { name: pattern }).all().catch(() => []);
-  const textButtons = await page.getByText(pattern).all().catch(() => []);
-  const buttons = [...roleButtons, ...textButtons];
-  for (const button of buttons) {
+  for (const button of roleButtons) {
     if (!(await button.isVisible().catch(() => false))) continue;
     if (await button.isDisabled().catch(() => false)) continue;
     return button;
   }
+
+  const textCandidates = await page.getByText(pattern).all().catch(() => []);
+  for (const candidate of textCandidates) {
+    const clickable = await actionableFromTextCandidate(candidate, pattern);
+    if (!clickable) continue;
+    if (!(await clickable.isVisible().catch(() => false))) continue;
+    if (await clickable.isDisabled().catch(() => false)) continue;
+    return clickable;
+  }
   return null;
+}
+
+async function actionableFromTextCandidate(candidate, pattern) {
+  if (!(await candidate.isVisible().catch(() => false))) return null;
+
+  const nearbyControls = await candidate
+    .locator('xpath=ancestor::*[.//button or .//*[@role="button"] or .//*[@role="menuitem"]][1]')
+    .locator('button, [role="button"], [role="menuitem"]')
+    .all()
+    .catch(() => []);
+  for (const control of nearbyControls) {
+    if (await controlMatchesTextPattern(control, pattern)) return control;
+  }
+
+  const direct = candidate.locator('xpath=ancestor-or-self::*[self::button or self::a or @role="button" or @role="menuitem"][1]');
+  if ((await direct.count().catch(() => 0)) > 0) {
+    const control = direct.first();
+    const ariaLabel = await control.getAttribute("aria-label").catch(() => "");
+    if (!ariaLabel || pattern.test(ariaLabel)) return control;
+    return null;
+  }
+
+  if (pattern === RENEW_LISTING_PATTERN) return null;
+  return candidate;
+}
+
+async function controlMatchesTextPattern(control, pattern) {
+  const ariaLabel = await control.getAttribute("aria-label").catch(() => "");
+  if (ariaLabel && !pattern.test(ariaLabel)) return false;
+  const text = await control.innerText().catch(() => "");
+  return pattern.test(ariaLabel) || pattern.test(text);
 }
 
 async function maybePublish(page) {
