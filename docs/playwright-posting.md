@@ -78,9 +78,26 @@ After a live run, verify the item from the web app's `Marketplace listings` shor
 - `--prefix batch-prefix`: post only listings whose IDs start with the prefix.
 - `--limit 5`: cap queue size for dry runs.
 - `--live` or `--publish-approved`: allow final Publish clicks when Settings also permits it.
-- `--edit-existing`: update an already-posted Marketplace listing using its saved `posted_url` or `--edit-url`.
+- `--edit-existing`: update an already-posted Marketplace listing using its saved `posted_url` or `--edit-url`. If `posted_url` is missing or stale, the worker searches the seller dashboard by exact listing title, opens the match, derives the edit URL, and saves the discovered live URL back to local state.
+- `--replace-photos`: when used with `--edit-existing`, remove existing Facebook photos and upload the listing's reviewed photos again. Leave this off for faster title, price, description, and location edits.
 - `--renew-listings`: open the selling dashboard and click visible enabled `Renew` or `Refresh` listing controls, including Facebook `Tip: Renew your listing?` cards that open a side-panel renew button.
 - `--renew-if-enabled`: run listing refresh only when Settings has auto-refresh enabled and the 3-4 day interval has elapsed.
+
+## Fast Existing-Listing Edits
+
+Use the edit path for live Marketplace listings that only need text or price changes:
+
+```bash
+node scripts/facebook_marketplace_worker.js --ids example-001 --edit-existing
+```
+
+The default edit path does not touch photos. This keeps updates much faster and avoids unnecessary photo-delete/upload steps in Facebook's editor. Use `--replace-photos` only when the user explicitly wants Facebook photos changed:
+
+```bash
+node scripts/facebook_marketplace_worker.js --ids example-001 --edit-existing --replace-photos
+```
+
+When a listing was published but local state captured Facebook's intermediate create URL instead of the final item URL, the worker repairs it on the next edit by matching the reviewed listing title on `https://www.facebook.com/marketplace/you/selling`. After saving, it patches the discovered Marketplace URL back into the app so future edits can open directly.
 
 ## Listing Refresh
 

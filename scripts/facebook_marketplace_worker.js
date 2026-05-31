@@ -28,6 +28,7 @@ function parseArgs(argv) {
     editExisting: false,
     renewListings: false,
     renewIfEnabled: false,
+    replacePhotos: false,
     limit: 0,
     ids: [],
     prefix: "",
@@ -40,12 +41,13 @@ function parseArgs(argv) {
     else if (arg === "--edit-existing") args.editExisting = true;
     else if (arg === "--renew-listings" || arg === "--refresh-listings") args.renewListings = true;
     else if (arg === "--renew-if-enabled" || arg === "--refresh-if-enabled") args.renewIfEnabled = true;
+    else if (arg === "--replace-photos") args.replacePhotos = true;
     else if (arg === "--edit-url") args.editUrl = argv[++i];
     else if (arg === "--limit") args.limit = Number(argv[++i]);
     else if (arg === "--ids") args.ids = argv[++i].split(",").map((value) => value.trim()).filter(Boolean);
     else if (arg === "--prefix") args.prefix = argv[++i];
     else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved|--live] [--edit-existing] [--edit-url URL] [--renew-listings|--renew-if-enabled] [--ids id1,id2] [--prefix batch-001] [--limit 5]");
+      console.log("Usage: node scripts/facebook_marketplace_worker.js [--api http://127.0.0.1:8766] [--publish-approved|--live] [--edit-existing] [--edit-url URL] [--replace-photos] [--renew-listings|--renew-if-enabled] [--ids id1,id2] [--prefix batch-001] [--limit 5]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -318,13 +320,98 @@ function listingIdFromUrl(url) {
   return match ? match[1] : "";
 }
 
-function editUrlForListing(item, explicitUrl = "") {
-  if (explicitUrl) return explicitUrl;
-  const listingId = listingIdFromUrl(item.posted_url);
-  if (!listingId) {
-    throw new Error(`${item.id}: no Facebook listing id found in posted_url; pass --edit-url`);
+function absoluteFacebookUrl(href) {
+  if (!href) return "";
+  if (/^https?:\/\//i.test(href)) return href;
+  return `https://www.facebook.com${href.startsWith("/") ? "" : "/"}${href}`;
+}
+
+function editUrlFromAnyFacebookUrl(url) {
+  if (/facebook\.com\/marketplace\/edit\/?/i.test(String(url || ""))) return url;
+  const listingId = listingIdFromUrl(url);
+  return listingId ? `https://www.facebook.com/marketplace/edit/?listing_id=${listingId}` : "";
+}
+
+function titleMatcher(title) {
+  return new RegExp(`^\\s*${escapeRegExp(String(title || "").trim())}\\s*$`, "i");
+}
+
+async function visibleHref(locator) {
+  if ((await locator.count().catch(() => 0)) === 0) return "";
+  const all = await locator.all().catch(() => []);
+  for (const candidate of all) {
+    if (!(await candidate.isVisible().catch(() => false))) continue;
+    const href = await candidate.getAttribute("href").catch(() => "");
+    if (href) return absoluteFacebookUrl(href);
   }
-  return `https://www.facebook.com/marketplace/edit/?listing_id=${listingId}`;
+  return "";
+}
+
+async function listingUrlOnCurrentPage(page, item) {
+  const titlePattern = titleMatcher(item.title);
+  const direct = await visibleHref(page.locator('a[href*="/marketplace/item/"]').filter({ hasText: titlePattern }));
+  if (direct) return direct;
+
+  const titleNode = await firstVisible([page.getByText(titlePattern).first()]);
+  if (!titleNode) return "";
+  const ancestorLink = titleNode.locator('xpath=ancestor::a[contains(@href, "/marketplace/item/")][1]');
+  const ancestorHref = await visibleHref(ancestorLink);
+  if (ancestorHref) return ancestorHref;
+
+  const cardLinks = titleNode
+    .locator('xpath=ancestor::*[.//a[contains(@href, "/marketplace/item/")]][1]')
+    .locator('a[href*="/marketplace/item/"]');
+  return visibleHref(cardLinks);
+}
+
+async function findSellerListingUrl(page, item, maxScrolls = 8) {
+  await page.goto("https://www.facebook.com/marketplace/you/selling", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1800);
+  if (await facebookLoginRequired(page)) {
+    throw new Error("Facebook is not logged in in this browser profile.");
+  }
+
+  const titlePattern = titleMatcher(item.title);
+  let idleScrolls = 0;
+  for (let attempt = 0; attempt <= maxScrolls; attempt += 1) {
+    const href = await listingUrlOnCurrentPage(page, item);
+    if (href) return href;
+
+    const titleNode = await firstVisible([page.getByText(titlePattern).first()]);
+    if (titleNode) {
+      await titleNode.scrollIntoViewIfNeeded().catch(() => null);
+      await titleNode.click().catch(() => null);
+      await page.waitForTimeout(1200);
+      const current = page.url();
+      if (/facebook\.com\/marketplace\/item\//i.test(current)) return current;
+      const openedHref = await listingUrlOnCurrentPage(page, item);
+      if (openedHref) return openedHref;
+      const editHref = await visibleHref(page.locator('a[href*="/marketplace/edit/"], a[href*="listing_id="]'));
+      if (editHref) return editHref;
+      await page.keyboard.press("Escape").catch(() => null);
+      await page.waitForTimeout(400);
+    }
+
+    const beforeScroll = await page.evaluate(() => window.scrollY).catch(() => 0);
+    await page.mouse.wheel(0, 900);
+    await page.waitForTimeout(700);
+    const afterScrollY = await page.evaluate(() => window.scrollY).catch(() => 0);
+    if (Math.abs(afterScrollY - beforeScroll) < 20) idleScrolls += 1;
+    else idleScrolls = 0;
+    if (idleScrolls >= 2) break;
+  }
+  return "";
+}
+
+async function resolveEditUrl(page, item, explicitUrl = "") {
+  const direct = editUrlFromAnyFacebookUrl(explicitUrl || item.posted_url);
+  if (direct) return { editUrl: direct, discoveredUrl: explicitUrl || item.posted_url, discovered: false };
+  const discoveredUrl = await findSellerListingUrl(page, item);
+  const editUrl = editUrlFromAnyFacebookUrl(discoveredUrl);
+  if (!editUrl) {
+    throw new Error(`${item.id}: no Facebook listing id found in posted_url and no matching live listing was found by title`);
+  }
+  return { editUrl, discoveredUrl, discovered: true };
 }
 
 function clampRefreshIntervalDays(value) {
@@ -397,18 +484,18 @@ async function replaceExistingText(page, labels, value) {
   return false;
 }
 
-async function updateExistingListing(page, item, explicitUrl = "") {
-  const url = editUrlForListing(item, explicitUrl);
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(3500);
+async function updateExistingListing(page, item, options = {}) {
+  const resolved = await resolveEditUrl(page, item, options.editUrl || "");
+  await page.goto(resolved.editUrl, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1800);
 
   if (await facebookLoginRequired(page)) {
     throw new Error("Facebook is not logged in in this browser profile.");
   }
 
-  const photos = await materializePhotos(item);
   let uploaded = 0;
-  if (photos.length) {
+  if (options.replacePhotos) {
+    const photos = await materializePhotos(item);
     await removeExistingFacebookPhotos(page);
     uploaded = await uploadPhotos(page, photos.slice(0, 10)).catch(() => 0);
     await page.waitForTimeout(uploaded ? 1500 : 500);
@@ -426,7 +513,7 @@ async function updateExistingListing(page, item, explicitUrl = "") {
   if (!saveResult.saved) {
     throw new Error(`Could not find enabled Save/Update button after editing: ${JSON.stringify(result)}`);
   }
-  return { ...result, step: saveResult.step };
+  return { ...result, step: saveResult.step, postedUrl: resolved.discoveredUrl, discovered: resolved.discovered };
 }
 
 async function removeExistingFacebookPhotos(page) {
@@ -608,13 +695,13 @@ async function controlMatchesTextPattern(control, pattern) {
   return pattern.test(ariaLabel) || pattern.test(text);
 }
 
-async function maybePublish(page) {
+async function maybePublish(page, item = null) {
   for (let step = 0; step < 9; step += 1) {
     await page.waitForTimeout(1200);
     const publish = await firstEnabledButton(page, /^publish$/i);
     if (publish) {
       await publish.click();
-      const postedUrl = await waitForPostedUrl(page);
+      const postedUrl = await waitForPostedUrl(page, item);
       return { published: true, step: "publish_clicked", postedUrl };
     }
 
@@ -641,15 +728,19 @@ async function maybePublish(page) {
   return { published: false, step: "publish_not_reached_after_steps" };
 }
 
-async function waitForPostedUrl(page) {
+async function waitForPostedUrl(page, item = null) {
   await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => null);
   await page.waitForTimeout(3500);
   const currentUrl = page.url();
   if (/facebook\.com\/marketplace\/item\//i.test(currentUrl)) return currentUrl;
   const itemLink = page.locator('a[href*="/marketplace/item/"]').first();
   const href = await itemLink.getAttribute("href").catch(() => "");
-  if (!href) return currentUrl;
-  return href.startsWith("http") ? href : `https://www.facebook.com${href}`;
+  if (href) return absoluteFacebookUrl(href);
+  if (item) {
+    const sellerHref = await findSellerListingUrl(page, item, 3).catch(() => "");
+    if (sellerHref) return sellerHref;
+  }
+  return currentUrl;
 }
 
 async function maybeSaveDraft(page) {
@@ -714,10 +805,11 @@ async function main() {
       for (const item of queue) {
         console.log(`Updating existing Facebook listing ${item.id}: ${item.title}`);
         try {
-          const result = await updateExistingListing(page, item, args.editUrl);
+          const result = await updateExistingListing(page, item, args);
           await apiPostLog(args.api, item, {
             status: "published",
             posting_status: `live_edit_saved ${JSON.stringify(result)}`,
+            posted_url: result.postedUrl || item.posted_url || "",
           });
           console.log(`Updated ${item.id}: ${JSON.stringify(result)}`);
         } catch (error) {
@@ -734,7 +826,7 @@ async function main() {
           const shot = await screenshot(page, item, "draft");
           const autoPublish = Boolean(args.publishApproved && settings.auto_publish && item.auto_publish_allowed);
           if (autoPublish) {
-            const publishResult = await maybePublish(page);
+            const publishResult = await maybePublish(page, item);
             await apiPostLog(args.api, item, {
               status: publishResult.published ? "published" : "drafted",
               posting_status: publishResult.step,
