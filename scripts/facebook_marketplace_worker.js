@@ -20,6 +20,9 @@ const LOGIN_WAIT_MS = 15 * 60 * 1000;
 const LOGIN_POLL_MS = 2500;
 const RENEW_LISTING_PATTERN = /(?:^|\b)(renew|refresh)(?:\s+(?:your\s+)?listing)?\??(?:\b|$)/i;
 const RENEW_TIP_PATTERN = /^Tip:\s*Renew your listing\?/i;
+const SOLD_STATUS_LINE_PATTERN = /^(?:status:\s*)?(?:sold|marked as sold|sold out)$/i;
+const SOLD_STATUS_CONTEXT_PATTERN = /\b(?:marked as sold|listing is sold|status:\s*sold|sold out)\b/i;
+const MARK_AS_SOLD_ACTION_PATTERN = /\bmark as sold\b/i;
 
 function parseArgs(argv) {
   const args = {
@@ -589,6 +592,10 @@ async function renewVisibleListings(page, limit = 0) {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const button = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
     if (button) {
+      if (await isSoldListingContext(button)) {
+        await scrollPastControl(page, button);
+        continue;
+      }
       await button.click();
       renewed += 1;
       idleScrolls = 0;
@@ -599,6 +606,10 @@ async function renewVisibleListings(page, limit = 0) {
     const tipCard = await firstRenewTipCard(page, seenTipListings);
     if (tipCard) {
       seenTipListings.add(tipCard.label);
+      if (await isSoldListingContext(tipCard.card)) {
+        await scrollPastControl(page, tipCard.card);
+        continue;
+      }
       await tipCard.card.click();
       await page.waitForTimeout(1400);
       const panelRenew = await firstEnabledButton(page, /^Renew listing$/i);
@@ -624,6 +635,40 @@ async function renewVisibleListings(page, limit = 0) {
   return { renewed };
 }
 
+function hasSoldListingStatus(text) {
+  const normalized = String(text || "").replace(/\u00a0/g, " ");
+  const withoutUnsoldActions = normalized.replace(MARK_AS_SOLD_ACTION_PATTERN, "");
+  const lines = withoutUnsoldActions.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return lines.some((line) => SOLD_STATUS_LINE_PATTERN.test(line)) || SOLD_STATUS_CONTEXT_PATTERN.test(withoutUnsoldActions);
+}
+
+async function listingContextText(control) {
+  return control.evaluate((node) => {
+    const chunks = [];
+    let element = node;
+    for (let depth = 0; element && depth < 8; depth += 1) {
+      const rect = element.getBoundingClientRect();
+      const text = (element.innerText || element.getAttribute("aria-label") || "").trim();
+      if (text && rect.width > 60 && rect.height > 20 && rect.width < 900 && rect.height < 700) {
+        chunks.push(text);
+      }
+      element = element.parentElement;
+    }
+    return chunks.join("\n");
+  }).catch(() => "");
+}
+
+async function isSoldListingContext(control) {
+  return hasSoldListingStatus(await listingContextText(control));
+}
+
+async function scrollPastControl(page, control) {
+  const box = await control.boundingBox().catch(() => null);
+  if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2).catch(() => null);
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(600);
+}
+
 async function screenshot(page, item, suffix) {
   fs.mkdirSync(RESULT_DIR, { recursive: true });
   const out = path.join(RESULT_DIR, `${item.id}-${suffix}-${Date.now()}.png`);
@@ -634,8 +679,7 @@ async function screenshot(page, item, suffix) {
 async function firstEnabledButton(page, pattern) {
   const roleButtons = await page.getByRole("button", { name: pattern }).all().catch(() => []);
   for (const button of roleButtons) {
-    if (!(await button.isVisible().catch(() => false))) continue;
-    if (await button.isDisabled().catch(() => false)) continue;
+    if (!(await isEnabledVisibleControl(button))) continue;
     return button;
   }
 
@@ -643,15 +687,23 @@ async function firstEnabledButton(page, pattern) {
   for (const candidate of textCandidates) {
     const clickable = await actionableFromTextCandidate(candidate, pattern);
     if (!clickable) continue;
-    if (!(await clickable.isVisible().catch(() => false))) continue;
-    if (await clickable.isDisabled().catch(() => false)) continue;
+    if (!(await isEnabledVisibleControl(clickable))) continue;
     return clickable;
+  }
+
+  const controls = await page
+    .locator('button, [role="button"], [role="menuitem"], a[aria-label], div[aria-label]')
+    .all()
+    .catch(() => []);
+  for (const control of controls) {
+    if (!(await isEnabledVisibleControl(control))) continue;
+    if (await controlMatchesTextPattern(control, pattern)) return control;
   }
   return null;
 }
 
 async function actionableFromTextCandidate(candidate, pattern) {
-  if (!(await candidate.isVisible().catch(() => false))) return null;
+  if (!(await isEnabledVisibleControl(candidate))) return null;
 
   const nearbyControls = await candidate
     .locator('xpath=ancestor::*[.//button or .//*[@role="button"] or .//*[@role="menuitem"]][1]')
@@ -674,11 +726,21 @@ async function actionableFromTextCandidate(candidate, pattern) {
   return candidate;
 }
 
+async function isEnabledVisibleControl(control) {
+  if (!(await control.isVisible().catch(() => false))) return false;
+  if (await control.isDisabled().catch(() => false)) return false;
+  const ariaDisabled = await control.getAttribute("aria-disabled").catch(() => "");
+  if (ariaDisabled === "true") return false;
+  const disabled = await control.getAttribute("disabled").catch(() => null);
+  if (disabled !== null) return false;
+  const box = await control.boundingBox().catch(() => null);
+  return Boolean(box && box.width > 0 && box.height > 0);
+}
+
 async function firstRenewTipCard(page, seenTipListings) {
   const cards = await page.getByRole("button").filter({ hasText: RENEW_TIP_PATTERN }).all().catch(() => []);
   for (const card of cards) {
-    if (!(await card.isVisible().catch(() => false))) continue;
-    if (await card.isDisabled().catch(() => false)) continue;
+    if (!(await isEnabledVisibleControl(card))) continue;
     const box = await card.boundingBox().catch(() => null);
     if (!box || box.width <= 0 || box.height <= 0 || box.y < 70 || box.y > 900) continue;
     const label = (await card.getAttribute("aria-label").catch(() => "")) || (await card.innerText().catch(() => "")).split("\n")[1] || "listing";
@@ -690,42 +752,126 @@ async function firstRenewTipCard(page, seenTipListings) {
 
 async function controlMatchesTextPattern(control, pattern) {
   const ariaLabel = await control.getAttribute("aria-label").catch(() => "");
-  if (ariaLabel && !pattern.test(ariaLabel)) return false;
   const text = await control.innerText().catch(() => "");
-  return pattern.test(ariaLabel) || pattern.test(text);
+  return pattern.test(ariaLabel || "") || pattern.test(text || "");
 }
 
 async function maybePublish(page, item = null) {
   for (let step = 0; step < 9; step += 1) {
     await page.waitForTimeout(1200);
-    const publish = await firstEnabledButton(page, /^publish$/i);
-    if (publish) {
-      await publish.click();
+    if (item) await maybeSelectLocalPickupOnly(page, item);
+    if (await clickEnabledAction(page, /^publish$/i)) {
       const postedUrl = await waitForPostedUrl(page, item);
       return { published: true, step: "publish_clicked", postedUrl };
     }
 
-    const next = await firstEnabledButton(page, /^next$/i);
-    if (next) {
-      await next.click();
+    if (await clickEnabledAction(page, /^next$/i)) {
       continue;
     }
 
-    const skip = await firstEnabledButton(page, /^skip$/i);
-    if (skip) {
-      await skip.click();
+    if (await clickEnabledAction(page, /^skip$/i)) {
       continue;
     }
 
-    const notNow = await firstEnabledButton(page, /^not now$/i);
-    if (notNow) {
-      await notNow.click();
+    if (await clickEnabledAction(page, /^not now$/i)) {
       continue;
     }
 
     return { published: false, step: `no_enabled_publish_next_or_skip_step_${step}` };
   }
   return { published: false, step: "publish_not_reached_after_steps" };
+}
+
+async function maybeSelectLocalPickupOnly(page, item) {
+  if (!item.pickup_enabled || item.shipping_enabled) return false;
+  const deliveryMethod = await firstVisible([page.getByText(/^Delivery method$/i).first()]);
+  const shippingLabel = await firstVisible([page.getByText(/^Shipping label$/i).first(), page.getByText(/select shipping label/i).first()]);
+  const shippingAndPickup = await firstVisible([page.getByText(/^Shipping & local pickup$/i).first()]);
+  if (!deliveryMethod || (!shippingLabel && !shippingAndPickup)) return false;
+
+  const selected = await chooseDeliveryMethodLocalPickup(page);
+  if (selected) {
+    await page.waitForTimeout(1000);
+  }
+  return selected;
+}
+
+async function chooseDeliveryMethodLocalPickup(page) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const currentValue = await firstVisible([
+      page.getByText(/^Shipping & local pickup$/i).first(),
+      page.getByText(/^Delivery method$/i).first(),
+    ]);
+    if (!currentValue) return false;
+    const box = await currentValue.boundingBox().catch(() => null);
+    if (!box) return false;
+    await page.mouse.click(320, box.y + box.height / 2);
+    await page.waitForTimeout(700);
+    const shippingOption = await deliveryOptionText(page, /^Shipping$/i);
+    if (shippingOption) {
+      const optionBox = await shippingOption.boundingBox().catch(() => null);
+      if (optionBox) {
+        await page.mouse.click(333, optionBox.y + 25);
+        await page.waitForTimeout(800);
+        await page.keyboard.press("Escape").catch(() => null);
+        await page.waitForTimeout(500);
+        return true;
+      }
+    }
+    if (await clickDropdownOption(page, [/^local pickup$/i, /^local pickup only$/i], Math.max(80, box.y - 20))) return true;
+    await page.keyboard.press("Escape").catch(() => null);
+    await page.waitForTimeout(300);
+  }
+  return false;
+}
+
+async function deliveryOptionText(page, pattern) {
+  const candidates = await page.getByText(pattern).all().catch(() => []);
+  for (const candidate of candidates) {
+    const box = await candidate.boundingBox().catch(() => null);
+    if (!box || box.x > 380 || box.y < 250 || box.width <= 0 || box.height <= 0) continue;
+    return candidate;
+  }
+  return null;
+}
+
+async function clickEnabledAction(page, pattern) {
+  const button = await firstEnabledButton(page, pattern);
+  if (button) {
+    await button.click();
+    return true;
+  }
+
+  // Facebook sometimes renders the left-panel wizard action as nested div/span
+  // text without a stable button role. Click the visible control-shaped text
+  // in the Marketplace form panel as a last resort.
+  const candidates = await page.locator('button, [role="button"], div[aria-label], span, div').filter({ hasText: pattern }).all().catch(() => []);
+  const viewport = page.viewportSize() || { width: 1440, height: 1000 };
+  const visibleCandidates = [];
+  for (const candidate of candidates) {
+    const box = await candidate.boundingBox().catch(() => null);
+    if (!box || box.width <= 0 || box.height <= 0) continue;
+    if (box.x > 380 || box.y < 70 || box.y > viewport.height - 20) continue;
+    if (await candidate.getAttribute("aria-disabled").catch(() => "") === "true") continue;
+    const disabled = await candidate.getAttribute("disabled").catch(() => null);
+    if (disabled !== null) continue;
+    const text = await candidate.innerText().catch(() => "");
+    const ariaLabel = await candidate.getAttribute("aria-label").catch(() => "");
+    if (!exactControlTextMatches(text || ariaLabel || "", pattern)) continue;
+    visibleCandidates.push({ candidate, box });
+  }
+  visibleCandidates.sort((a, b) => a.box.width * a.box.height - b.box.width * b.box.height);
+  for (const { candidate, box } of visibleCandidates) {
+    await candidate.scrollIntoViewIfNeeded().catch(() => null);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    return true;
+  }
+  return false;
+}
+
+function exactControlTextMatches(value, pattern) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  return Boolean(normalized && pattern.test(normalized));
 }
 
 async function waitForPostedUrl(page, item = null) {
@@ -827,9 +973,10 @@ async function main() {
           const autoPublish = Boolean(args.publishApproved && settings.auto_publish && item.auto_publish_allowed);
           if (autoPublish) {
             const publishResult = await maybePublish(page, item);
+            const publishFailureShot = publishResult.published ? "" : await screenshot(page, item, "publish-failed");
             await apiPostLog(args.api, item, {
               status: publishResult.published ? "published" : "drafted",
-              posting_status: publishResult.step,
+              posting_status: publishFailureShot ? `${publishResult.step} screenshot=${publishFailureShot}` : publishResult.step,
               posted_url: publishResult.postedUrl || "",
             });
           } else {

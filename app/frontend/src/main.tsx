@@ -63,6 +63,8 @@ type Listing = {
   reference_only_approved: boolean;
   validation: Issue[];
   photos: Photo[];
+  created_at: string;
+  updated_at: string;
 };
 type AppSettings = {
   project_name: string;
@@ -289,6 +291,32 @@ const api = {
   },
 };
 
+function listingTimestamp(value?: string): number {
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareNewestAdded(a: Listing, b: Listing): number {
+  const created = listingTimestamp(b.created_at) - listingTimestamp(a.created_at);
+  if (created !== 0) return created;
+  const updated = listingTimestamp(b.updated_at) - listingTimestamp(a.updated_at);
+  if (updated !== 0) return updated;
+  return b.id.localeCompare(a.id);
+}
+
+function compareNewestUpdated(a: Listing, b: Listing): number {
+  const updated = listingTimestamp(b.updated_at) - listingTimestamp(a.updated_at);
+  if (updated !== 0) return updated;
+  const created = listingTimestamp(b.created_at) - listingTimestamp(a.created_at);
+  if (created !== 0) return created;
+  return b.id.localeCompare(a.id);
+}
+
+function sortListingsForStatus(rows: Listing[], statusFilter: string): Listing[] {
+  const compare = statusFilter === "all" || statusFilter === "needs_review" ? compareNewestAdded : compareNewestUpdated;
+  return [...rows].sort(compare);
+}
+
 function App() {
   const [view, setView] = useState<"intake" | "review" | "btc" | "agents" | "posting" | "settings" | "logs">("intake");
   const [listings, setListings] = useState<Listing[]>([]);
@@ -310,7 +338,7 @@ function App() {
     setLogs(nextLogs);
     setBtcEntries(nextBtcEntries);
     setBtcSummary(nextBtcSummary);
-    setSelectedId((current) => current || nextListings[0]?.id || "");
+    setSelectedId((current) => current || sortListingsForStatus(nextListings, "all")[0]?.id || "");
   }
 
   useEffect(() => {
@@ -319,11 +347,12 @@ function App() {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return listings.filter((listing) => {
+    const rows = listings.filter((listing) => {
       const statusOk = statusFilter === "all" || listing.status === statusFilter || (statusFilter === "approved" && listing.approved);
       const queryOk = !needle || [listing.title, listing.category, listing.quantity_text, listing.source].join(" ").toLowerCase().includes(needle);
       return statusOk && queryOk;
     });
+    return sortListingsForStatus(rows, statusFilter);
   }, [listings, query, statusFilter]);
   const selected = filtered.find((listing) => listing.id === selectedId) || filtered[0];
   const handoffIds = checkedListingIds.length ? checkedListingIds : selected?.id ? [selected.id] : [];
