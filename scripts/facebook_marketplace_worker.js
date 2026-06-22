@@ -589,15 +589,20 @@ async function renewVisibleListings(page, limit = 0) {
   const maxAttempts = limit > 0 ? limit : 50;
   const seenTipListings = new Set();
   let idleScrolls = 0;
+  console.log("Scanning the Marketplace selling dashboard for visible Renew/Refresh controls.");
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const button = await firstEnabledButton(page, RENEW_LISTING_PATTERN);
+    const button = await firstDirectRenewControl(page);
     if (button) {
       if (await isSoldListingContext(button)) {
         await scrollPastControl(page, button);
         continue;
       }
-      await button.click();
+      if (!(await clickRenewControl(page, button))) {
+        await scrollPastControl(page, button);
+        continue;
+      }
       renewed += 1;
+      console.log(`Clicked a visible Renew/Refresh control (${renewed}).`);
       idleScrolls = 0;
       await page.waitForTimeout(1800);
       continue;
@@ -610,14 +615,24 @@ async function renewVisibleListings(page, limit = 0) {
         await scrollPastControl(page, tipCard.card);
         continue;
       }
-      await tipCard.card.click();
+      if (!(await clickRenewControl(page, tipCard.card))) {
+        await scrollPastControl(page, tipCard.card);
+        continue;
+      }
       await page.waitForTimeout(1400);
       const panelRenew = await firstEnabledButton(page, /^Renew listing$/i);
       if (panelRenew) {
-        await panelRenew.click();
+        if (!(await clickRenewControl(page, panelRenew))) {
+          await page.keyboard.press("Escape").catch(() => null);
+          await scrollPastControl(page, tipCard.card);
+          continue;
+        }
         renewed += 1;
+        console.log(`Renewed listing from a Facebook tip card (${renewed}).`);
         idleScrolls = 0;
         await page.waitForTimeout(2200);
+      } else {
+        console.log("Opened a renewal tip card, but no enabled side-panel Renew listing button appeared.");
       }
       await page.keyboard.press("Escape").catch(() => null);
       await page.waitForTimeout(700);
@@ -633,6 +648,65 @@ async function renewVisibleListings(page, limit = 0) {
     if (idleScrolls >= 3) break;
   }
   return { renewed };
+}
+
+async function clickRenewControl(page, control) {
+  await control.scrollIntoViewIfNeeded().catch(() => null);
+  await page.waitForTimeout(150);
+  const box = await control.boundingBox().catch(() => null);
+  if (box) {
+    try {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      return true;
+    } catch (mouseError) {
+      console.warn(`Could not click renewal control: ${mouseError.message}`);
+      return false;
+    }
+  }
+  try {
+    await control.click({ timeout: 2000 });
+    return true;
+  } catch (error) {
+    console.warn(`Could not click renewal control: ${error.message}`);
+    return false;
+  }
+}
+
+async function firstDirectRenewControl(page) {
+  const candidates = [
+    ...(await page.getByRole("button", { name: RENEW_LISTING_PATTERN }).all().catch(() => [])),
+    ...(await page.getByRole("menuitem", { name: RENEW_LISTING_PATTERN }).all().catch(() => [])),
+    ...(await page.getByRole("link", { name: RENEW_LISTING_PATTERN }).all().catch(() => [])),
+  ];
+  for (const control of candidates) {
+    if (!(await isEnabledVisibleControl(control))) continue;
+    if (await isRenewTipControl(control)) continue;
+    if (!(await isCompactActionControl(control))) continue;
+    return control;
+  }
+
+  const textCandidates = await page.getByText(RENEW_LISTING_PATTERN).all().catch(() => []);
+  for (const candidate of textCandidates) {
+    const clickable = await actionableFromTextCandidate(candidate, RENEW_LISTING_PATTERN);
+    if (!clickable) continue;
+    if (!(await isEnabledVisibleControl(clickable))) continue;
+    if (await isRenewTipControl(clickable)) continue;
+    if (!(await isCompactActionControl(clickable))) continue;
+    return clickable;
+  }
+  return null;
+}
+
+async function isRenewTipControl(control) {
+  const ariaLabel = await control.getAttribute("aria-label").catch(() => "");
+  const text = await control.innerText().catch(() => "");
+  return RENEW_TIP_PATTERN.test(ariaLabel || "") || RENEW_TIP_PATTERN.test(text || "");
+}
+
+async function isCompactActionControl(control) {
+  const box = await control.boundingBox().catch(() => null);
+  if (!box || box.width <= 0 || box.height <= 0) return false;
+  return box.width <= 760 && box.height <= 120;
 }
 
 function hasSoldListingStatus(text) {
@@ -692,7 +766,7 @@ async function firstEnabledButton(page, pattern) {
   }
 
   const controls = await page
-    .locator('button, [role="button"], [role="menuitem"], a[aria-label], div[aria-label]')
+    .locator('button, [role="button"], [role="menuitem"], a[aria-label]')
     .all()
     .catch(() => []);
   for (const control of controls) {
